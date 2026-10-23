@@ -1,0 +1,22 @@
+package at.petrak.hexcasting.api.casting.mishaps
+
+import at.petrak.hexcasting.api.casting.eval.CastingEnvironment
+import at.petrak.hexcasting.api.casting.iota.Iota
+import at.petrak.hexcasting.api.pigment.FrozenPigment
+import at.petrak.hexcasting.api.utils.TreeList
+import net.minecraft.network.chat.Component
+import net.minecraft.world.entity.Entity
+import net.minecraft.world.item.DyeColor
+
+class MishapEntityTooFarAway(val entity: Entity) : Mishap() {
+    override fun accentColor(env: CastingEnvironment, errorCtx: Context): FrozenPigment =
+        dyeColor(DyeColor.PINK)
+
+    override fun execute(env: CastingEnvironment, errorCtx: Context, stack: TreeList<Iota>): TreeList<Iota> {
+        env.mishapEnvironment.yeetHeldItemsTowards(entity.position())
+        return stack
+    }
+
+    override fun errorMessage(env: CastingEnvironment, errorCtx: Context): Component =
+        error("entity_too_far", (entity.displayName ?: entity.type.description).plainCopy())
+}

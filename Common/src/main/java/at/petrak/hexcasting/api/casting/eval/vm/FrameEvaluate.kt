@@ -1,0 +1,80 @@
+package at.petrak.hexcasting.api.casting.eval.vm
+
+import at.petrak.hexcasting.api.casting.eval.CastResult
+import at.petrak.hexcasting.api.casting.eval.ResolvedPatternType
+import at.petrak.hexcasting.api.casting.iota.Iota
+import at.petrak.hexcasting.api.casting.iota.IotaType
+import at.petrak.hexcasting.api.casting.iota.ListIota
+import at.petrak.hexcasting.api.utils.TreeList
+import at.petrak.hexcasting.common.lib.hex.HexEvalSounds
+import com.mojang.serialization.Codec
+import com.mojang.serialization.MapCodec
+import com.mojang.serialization.codecs.RecordCodecBuilder
+import net.minecraft.network.RegistryFriendlyByteBuf
+import net.minecraft.network.codec.ByteBufCodecs
+import net.minecraft.network.codec.StreamCodec
+import net.minecraft.server.level.ServerLevel
+
+/**
+ * A list of patterns to be evaluated in sequence.
+ * @property list the *remaining* list of patterns to be evaluated
+ * @property isMetacasting if this is being cast from a meta-evaluation pattern
+ */
+data class FrameEvaluate(val list: TreeList<Iota>, val isMetacasting: Boolean) : ContinuationFrame {
+    // Discard this frame and keep discarding frames.
+    override fun breakDownwards(stack: TreeList<Iota>) = false to stack
+
+    // Step the list of patterns, evaluating a single one.
+    override fun evaluate(
+        continuation: SpellContinuation,
+        level: ServerLevel,
+        harness: CastingVM
+    ): CastResult {
+        // If there are patterns left...
+        return if (!list.isEmpty()) {
+            val newCont = if (!list.tail().isEmpty()) { // yay TCO
+                // ...enqueue the evaluation of the rest of the patterns...
+                continuation.pushFrame(FrameEvaluate(list.tail(), this.isMetacasting))
+            } else continuation
+            // ...before evaluating the first one in the list.
+            val update = harness.executeInner(list.head(), level, newCont)
+            if (this.isMetacasting && update.sound != HexEvalSounds.MISHAP.get()) {
+                update.copy(sound = HexEvalSounds.HERMES.get())
+            } else {
+                update
+            }
+        } else {
+            // If there are no patterns (e.g. empty Hermes), just return OK.
+            CastResult(ListIota(list), continuation, null, listOf(), ResolvedPatternType.EVALUATED, HexEvalSounds.HERMES.get())
+        }
+    }
+
+    override fun size() = list.size
+
+    override val type: ContinuationFrame.Type<*> = TYPE
+
+    companion object {
+
+        @JvmField
+        val TYPE: ContinuationFrame.Type<FrameEvaluate> = object : ContinuationFrame.Type<FrameEvaluate> {
+            val CODEC = RecordCodecBuilder.mapCodec<FrameEvaluate> { inst ->
+                inst.group(
+                    TreeList.codecOf(IotaType.TYPED_CODEC).fieldOf("patterns").forGetter { it.list },
+                    Codec.BOOL.fieldOf("isMetacasting").forGetter { it.isMetacasting }
+                ).apply(inst, ::FrameEvaluate)
+            }
+            val STREAM_CODEC = StreamCodec.composite(
+                IotaType.TYPED_STREAM_CODEC.apply(TreeList.streamCodecOp()).map(TreeList<Iota>::from) { it }, FrameEvaluate::list,
+                ByteBufCodecs.BOOL, FrameEvaluate::isMetacasting,
+                ::FrameEvaluate
+            )
+
+
+            override fun codec(): MapCodec<FrameEvaluate> =
+                CODEC
+
+            override fun streamCodec(): StreamCodec<RegistryFriendlyByteBuf, FrameEvaluate> =
+                STREAM_CODEC
+        }
+    }
+}

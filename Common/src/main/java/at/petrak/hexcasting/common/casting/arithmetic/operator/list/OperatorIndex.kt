@@ -1,0 +1,21 @@
+package at.petrak.hexcasting.common.casting.arithmetic.operator.list
+
+import at.petrak.hexcasting.api.casting.arithmetic.operator.OperatorBasic
+import at.petrak.hexcasting.api.casting.arithmetic.predicates.IotaMultiPredicate
+import at.petrak.hexcasting.api.casting.arithmetic.predicates.IotaPredicate
+import at.petrak.hexcasting.api.casting.eval.CastingEnvironment
+import at.petrak.hexcasting.api.casting.iota.Iota
+import at.petrak.hexcasting.api.casting.iota.NullIota
+import at.petrak.hexcasting.common.lib.hex.HexIotaTypes.DOUBLE
+import at.petrak.hexcasting.common.lib.hex.HexIotaTypes.LIST
+import kotlin.math.roundToInt
+
+object OperatorIndex : OperatorBasic(2, IotaMultiPredicate.pair(IotaPredicate.ofType(LIST.get()), IotaPredicate.ofType(DOUBLE.get()))) {
+    override fun apply(iotas: Iterable<Iota>, env: CastingEnvironment): Iterable<Iota> {
+        val it = iotas.iterator()
+        val list = downcast(it.next(), LIST.get()).list
+        val index = downcast(it.next(), DOUBLE.get()).double
+        val x = list.getOrElse(index.roundToInt()) { NullIota() }
+        return listOf(x)
+    }
+}

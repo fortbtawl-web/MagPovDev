@@ -1,0 +1,146 @@
+[build-system]
+requires = [
+    "hatchling",
+    "hatch-gradle-version>=0.9.5",
+]
+build-backend = "hatchling.build"
+
+# project metadata
+
+[project]
+name = "hexdoc-hexcasting"
+description = "Hex Casting web book."
+authors = [
+    { name="object-Object" },
+    { name="Alwinfy" },
+]
+readme = "doc/README.md"
+license = { file = "LICENSE.txt" }
+keywords = ["hexdoc"]
+requires-python = ">=3.12"
+dynamic = ["version", "dependencies", "optional-dependencies"]
+
+[project.urls]
+Homepage = "https://hexcasting.hexxy.media/"
+Source = "https://github.com/FallingColors/HexMod/"
+
+# Gradle version/deps
+
+[tool.hatch.version]
+scheme = "gradle"
+source = "gradle-properties"
+py-path = "doc/src/hexdoc_hexcasting/__version__.py"
+# exclude -devel from the version hexdoc sees
+gradle-version-regex = "(.+?)(?:-devel)?"
+
+[tool.hatch.metadata.hooks.gradle-properties]
+dependencies = [
+    "hexdoc>=2.0rc1,<3",
+    { package="hexdoc-minecraft", op="~=", py-version="2.0", key="minecraftVersion" },
+]
+
+[dependency-groups]
+dev = [
+    "ruff~=0.16.3",
+]
+
+# project structure
+
+[tool.hatch.build]
+artifacts = [
+    "/doc/src/hexdoc_hexcasting/_export/generated",
+    "/doc/src/hexdoc_hexcasting/__gradle_version__.py",
+]
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+    "doc/src/hexdoc_hexcasting",
+    "gradle.properties",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = [
+    "doc/src/hexdoc_hexcasting",
+]
+
+# hexdoc
+
+[project.entry-points.hexdoc]
+hexcasting = "hexdoc_hexcasting._hooks:HexcastingPlugin"
+
+# Ruff
+
+[tool.ruff]
+preview = true
+extend-exclude = [
+    "**/venv",
+    "**/.*",
+    "**/node_modules",
+    "**/__pycache__",
+]
+
+[tool.ruff.lint]
+extend-select = [
+    "I", # import sorting
+    "RUF022", # __all__ sorting
+    "TID252", # ban relative imports
+]
+extend-ignore = [
+    # false positives
+    "UP035", # deprecated import
+    "PIE807", # reimplemented container builtin
+    # covered by Pyright
+    "F821", # undefined variable
+    "F401", # imported but unused
+    "F841", # unused variable
+]
+
+[tool.ruff.lint.isort]
+combine-as-imports = true
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+# Pyright
+
+[tool.pyright]
+pythonVersion = "3.12"
+pythonPlatform = "All"
+
+typeCheckingMode = "standard"
+
+strictDictionaryInference = true
+strictListInference = true
+strictSetInference = true
+
+reportConstantRedefinition = "error"
+reportIncompleteStub = "error"
+reportInconsistentConstructor = "error"
+reportInvalidStubStatement = "error"
+
+reportDeprecated = "warning"
+reportDuplicateImport = "warning"
+reportMatchNotExhaustive = "warning"
+reportMissingParameterType = "warning"
+reportMissingTypeArgument = "warning"
+reportMissingTypeStubs = "warning"
+reportPrivateUsage = "warning"
+reportTypeCommentUsage = "warning"
+reportUnknownArgumentType = "warning"
+reportUnknownLambdaType = "warning"
+reportUnknownMemberType = "warning"
+reportUnknownParameterType = "warning"
+reportUnknownVariableType = "warning"
+reportUnnecessaryCast = "warning"
+reportUnnecessaryComparison = "warning"
+reportUnnecessaryContains = "warning"
+reportUnnecessaryIsInstance = "warning"
+reportUntypedBaseClass = "warning"
+reportUntypedClassDecorator = "warning"
+reportUntypedFunctionDecorator = "warning"
+reportUntypedNamedTuple = "warning"
+reportUnusedClass = "warning"
+reportUnusedExpression = "warning"
+reportUnusedFunction = "warning"
+reportUnusedImport = "warning"
+reportUnusedVariable = "warning"

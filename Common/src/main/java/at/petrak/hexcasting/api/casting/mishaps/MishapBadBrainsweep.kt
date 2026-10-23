@@ -1,0 +1,29 @@
+package at.petrak.hexcasting.api.casting.mishaps
+
+import at.petrak.hexcasting.api.casting.ParticleSpray
+import at.petrak.hexcasting.api.casting.eval.CastingEnvironment
+import at.petrak.hexcasting.api.casting.iota.Iota
+import at.petrak.hexcasting.api.pigment.FrozenPigment
+import at.petrak.hexcasting.api.utils.TreeList
+import at.petrak.hexcasting.common.lib.HexDamageTypes
+import net.minecraft.core.BlockPos
+import net.minecraft.world.entity.Mob
+import net.minecraft.world.item.DyeColor
+import net.minecraft.world.phys.Vec3
+
+class MishapBadBrainsweep(val mob: Mob, val pos: BlockPos) : Mishap() {
+    override fun accentColor(env: CastingEnvironment, errorCtx: Context): FrozenPigment =
+        dyeColor(DyeColor.GREEN)
+
+    override fun execute(env: CastingEnvironment, errorCtx: Context, stack: TreeList<Iota>): TreeList<Iota> {
+        trulyHurt(mob, mob.damageSources().source(HexDamageTypes.OVERCAST, env.castingEntity), 1f)
+        return stack
+    }
+
+    override fun particleSpray(env: CastingEnvironment): ParticleSpray {
+        return ParticleSpray.burst(Vec3.atCenterOf(pos), 1.0)
+    }
+
+    override fun errorMessage(env: CastingEnvironment, errorCtx: Context) =
+        error("bad_brainsweep", blockAtPos(env, this.pos))
+}

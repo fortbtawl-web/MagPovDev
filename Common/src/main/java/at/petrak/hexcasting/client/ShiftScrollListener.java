@@ -1,0 +1,76 @@
+package at.petrak.hexcasting.client;
+
+import at.petrak.hexcasting.api.mod.HexConfig;
+import at.petrak.hexcasting.common.lib.HexItems;
+import at.petrak.hexcasting.common.msgs.MsgShiftScrollC2S;
+import at.petrak.hexcasting.xplat.IClientXplatAbstractions;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.world.item.Item;
+
+public class ShiftScrollListener {
+    private static double mainHandDelta = 0;
+    private static double offHandDelta = 0;
+
+    public static boolean onScrollInGameplay(double delta) {
+        if (Minecraft.getInstance().screen != null) {
+            return false;
+        }
+
+        if (HexConfig.client().disableInworldScrolling()) return false;
+
+        return onScroll(delta, true);
+    }
+
+    public static boolean onScroll(double delta, boolean needsSneaking) {
+        return onScroll(delta, needsSneaking, true);
+    }
+
+    public static boolean onScroll(double delta, boolean needsSneaking, boolean allowInverting) {
+        LocalPlayer player = Minecraft.getInstance().player;
+        // not .isCrouching! that fails for players who are not on the ground
+        // yes, this does work if you remap your sneak key
+        if (player != null && (player.isShiftKeyDown() || !needsSneaking)) {
+            // Spectators shouldn't interact with items!
+            if (player.isSpectator()) {
+                return false;
+            }
+
+            if (IsScrollableItem(player.getMainHandItem().getItem())) {
+                mainHandDelta += delta * getScrollModifier(player.getMainHandItem().getItem(), allowInverting);
+                return true;
+            } else if (IsScrollableItem(player.getOffhandItem().getItem())) {
+                offHandDelta += delta * getScrollModifier(player.getOffhandItem().getItem(), allowInverting);
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static void clientTickEnd() {
+        if (mainHandDelta != 0 || offHandDelta != 0) {
+            IClientXplatAbstractions.INSTANCE.sendPacketToServer(
+                new MsgShiftScrollC2S(mainHandDelta, offHandDelta, Minecraft.getInstance().options.keySprint.isDown())
+            );
+            mainHandDelta = 0;
+            offHandDelta = 0;
+        }
+    }
+
+    private static boolean IsScrollableItem(Item item) {
+        return item == HexItems.SPELLBOOK.get() || item == HexItems.ABACUS.get();
+    }
+
+    private static double getScrollModifier(Item item, boolean allowInverting) {
+        if (!allowInverting) return 1;
+
+        if (item == HexItems.SPELLBOOK.get()) {
+            return HexConfig.client().invertSpellbookScrollDirection() ? -1 : 1;
+        } else if (item == HexItems.ABACUS.get()) {
+            return HexConfig.client().invertAbacusScrollDirection() ? -1 : 1;
+        } else {
+            return 1;
+        }
+    }
+}

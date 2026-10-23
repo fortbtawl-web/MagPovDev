@@ -1,0 +1,156 @@
+import at.petrak.pkpcpbp.MiscUtil
+
+plugins {
+    // used for something??
+    id 'dev.architectury.loom' version '1.13-SNAPSHOT' apply false
+    // used for multi-loader stuff, NOT for the archi API
+    id 'architectury-plugin' version '3.4-SNAPSHOT'
+    id 'com.gradleup.shadow' version '8.3.6' apply false
+
+    id "org.jetbrains.kotlin.jvm"
+    id 'idea'
+    // This needs to be in the root
+    // https://github.com/FabricMC/fabric-loom/issues/612#issuecomment-1198444120
+    // Also it looks like property lookups don't work this early
+    id 'fabric-loom' version '1.9+' apply false
+
+    id("at.petra-k.pkpcpbp.PKPlugin") version "0.2.0-pre-112"
+    id("at.petra-k.pkpcpbp.PKSubprojPlugin") version "0.2.0-pre-112" apply false
+    id("at.petra-k.pkpcpbp.PKJson5Plugin") version "0.2.0-pre-112" apply false
+}
+
+architectury {
+    minecraft = project.minecraftVersion
+}
+
+pkpcpbp {
+    // if something goes wrong in CI, make sure we can see the logs to figure out why
+    superDebugInfo = System.getenv("CI") != null
+    // we set the maven coordinates manually in the subprojects block
+    doProjectMetadata = false
+    setupJarMetadata = true
+    setupMavenMetadata = true
+    javaVersion = 21
+    modInfo {
+        modID = project.modID
+        mcVersion = project.minecraftVersion
+        modVersion = project.modVersion
+    }
+    curseforgeInfo {
+        id = 569849
+        stability = "beta"
+        token = System.getenv("CURSEFORGE_TOKEN")
+    }
+    modrinthInfo {
+        id = "nTW3yKrm"
+        stability = "beta"
+        token = System.getenv("MODRINTH_TOKEN")
+    }
+}
+
+subprojects {
+    apply plugin: 'dev.architectury.loom'
+    apply plugin: 'architectury-plugin'
+    apply plugin: 'java'
+    apply plugin: 'kotlin'
+    apply plugin: 'maven-publish'
+    apply plugin: 'at.petra-k.pkpcpbp.PKSubprojPlugin'
+    apply plugin: 'at.petra-k.pkpcpbp.PKJson5Plugin'
+
+    group = "at.petra-k.$modID"
+    base.archivesName = "$modID-$platform-$minecraftVersion"
+    version = modVersion
+
+    def isRelease = MiscUtil.isRelease(MiscUtil.getMostRecentPush(project))
+    def buildNumber = System.getenv("BUILD_NUMBER")
+    if (!isRelease && buildNumber != null) {
+        version += "-pre-$buildNumber"
+    }
+
+    pkSubproj {
+        platform = project.platform
+        artifactId = base.archivesName.get()
+        versionDisplayName = "$platform-$minecraftVersion-$modVersion"
+    }
+
+    pkJson5 {
+        autoProcessJson5 = true
+        autoProcessJson5Flattening = true
+    }
+
+    loom {
+        silentMojangMappingsLicense() // heroes in a half-shell
+    }
+
+    dependencies {
+        minecraft "net.minecraft:minecraft:$rootProject.minecraftVersion"
+        mappings loom.officialMojangMappings()
+    }
+
+    sourceSets.main.kotlin.srcDirs += 'src/main/java'
+
+    if (project.path != ':Common') {
+        loom {
+            mods {
+                main { // to match the default mod generated for Forge
+                    sourceSet project.sourceSets.main
+                    sourceSet project(':Common').sourceSets.main
+                }
+            }
+        }
+    }
+
+    processResources {
+        exclude '.cache'
+    }
+
+    java {
+        withSourcesJar()
+        sourceCompatibility = JavaVersion.VERSION_21
+        targetCompatibility = JavaVersion.VERSION_21
+    }
+
+    tasks.withType(JavaCompile).configureEach {
+        it.options.encoding = 'UTF-8'
+        it.options.release = 21
+    }
+
+    // Disables Gradle's custom module metadata from being published to maven. The
+    // metadata includes mapped dependencies which are not reasonably consumable by
+    // other mod developers.
+    tasks.withType(GenerateModuleMetadata).configureEach {
+        enabled = false
+    }
+
+    repositories {
+        exclusiveContent {
+            filter {
+                includeGroup("libs")
+            }
+            forRepository {
+                flatDir { dir(rootProject.file("libs")) }
+            }
+        }
+    }
+}
+
+allprojects {
+    architectury {
+//        compileOnly()
+    }
+
+    gradle.projectsEvaluated {
+        tasks.withType(JavaCompile).configureEach {
+            options.compilerArgs << "-Xmaxerrs" << "1000"
+        }
+    }
+
+    // disable most javadoc warnings
+    javadoc.options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+tasks.register("runAllDatagen") {
+    dependsOn ":Neoforge:runXplatDatagen"
+    dependsOn ":Neoforge:runDatagen"
+    dependsOn ":Fabric:runDatagen"
+}

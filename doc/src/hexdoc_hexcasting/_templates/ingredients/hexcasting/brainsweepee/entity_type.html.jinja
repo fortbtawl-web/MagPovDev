@@ -1,0 +1,9 @@
+{% import "macros/images.html.jinja" as Images with context -%}
+
+{{
+  Images.image(
+    name=brainsweepee.name,
+    image=brainsweepee.image,
+    class_names=["flay-recipe-entity"],
+  )
+}}

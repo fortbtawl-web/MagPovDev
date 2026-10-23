@@ -1,0 +1,339 @@
+package at.petrak.hexcasting.forge;
+
+import at.petrak.hexcasting.api.mod.HexConfig;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.Level;
+import net.neoforged.neoforge.common.ModConfigSpec;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+
+import static at.petrak.hexcasting.api.mod.HexConfig.noneMatch;
+
+public class ForgeHexConfig implements HexConfig.CommonConfigAccess {
+    private static ModConfigSpec.LongValue dustMediaAmount;
+    private static ModConfigSpec.LongValue shardMediaAmount;
+    private static ModConfigSpec.LongValue chargedCrystalMediaAmount;
+    private static ModConfigSpec.DoubleValue mediaToHealthRate;
+
+    private static ModConfigSpec.IntValue cypherCooldown;
+    private static ModConfigSpec.IntValue trinketCooldown;
+    private static ModConfigSpec.IntValue artifactCooldown;
+
+    public ForgeHexConfig(ModConfigSpec.Builder builder) {
+        builder.push("Media Amounts");
+        dustMediaAmount = builder.comment("How much media a single Amethyst Dust item is worth")
+            .defineInRange("dustMediaAmount", DEFAULT_DUST_MEDIA_AMOUNT, 0, Integer.MAX_VALUE);
+        shardMediaAmount = builder.comment("How much media a single Amethyst Shard item is worth")
+            .defineInRange("shardMediaAmount", DEFAULT_SHARD_MEDIA_AMOUNT, 0, Integer.MAX_VALUE);
+        chargedCrystalMediaAmount = builder.comment("How much media a single Charged Amethyst Crystal item is worth")
+            .defineInRange("chargedCrystalMediaAmount", DEFAULT_CHARGED_MEDIA_AMOUNT, 0, Integer.MAX_VALUE);
+        mediaToHealthRate = builder.comment("How many points of media a half-heart is worth when casting from HP")
+            .defineInRange("mediaToHealthRate", DEFAULT_MEDIA_TO_HEALTH_RATE, 0.0, Double.POSITIVE_INFINITY);
+        builder.pop();
+
+        builder.push("Cooldowns");
+        cypherCooldown = builder.comment("Cooldown in ticks of a cypher")
+            .defineInRange("cypherCooldown", DEFAULT_CYPHER_COOLDOWN, 0, Integer.MAX_VALUE);
+        trinketCooldown = builder.comment("Cooldown in ticks of a trinket")
+            .defineInRange("trinketCooldown", DEFAULT_TRINKET_COOLDOWN, 0, Integer.MAX_VALUE);
+        artifactCooldown = builder.comment("Cooldown in ticks of a artifact")
+            .defineInRange("artifactCooldown", DEFAULT_ARTIFACT_COOLDOWN, 0, Integer.MAX_VALUE);
+        builder.pop();
+    }
+
+    @Override
+    public long dustMediaAmount() {
+        return dustMediaAmount.get();
+    }
+
+    @Override
+    public long shardMediaAmount() {
+        return shardMediaAmount.get();
+    }
+
+    @Override
+    public long chargedCrystalMediaAmount() {
+        return chargedCrystalMediaAmount.get();
+    }
+
+    @Override
+    public double mediaToHealthRate() {
+        return mediaToHealthRate.get();
+    }
+
+    @Override
+    public int cypherCooldown() {
+        return cypherCooldown.get();
+    }
+
+    @Override
+    public int trinketCooldown() {
+        return trinketCooldown.get();
+    }
+
+    @Override
+    public int artifactCooldown() {
+        return artifactCooldown.get();
+    }
+
+    public static class Client implements HexConfig.ClientConfigAccess {
+        private static ModConfigSpec.BooleanValue ctrlTogglesOffStrokeOrder;
+        private static ModConfigSpec.BooleanValue invertSpellbookScrollDirection;
+        private static ModConfigSpec.BooleanValue invertAbacusScrollDirection;
+        private static ModConfigSpec.DoubleValue gridSnapThreshold;
+        private static ModConfigSpec.BooleanValue clickingTogglesDrawing;
+        private static ModConfigSpec.BooleanValue disableInworldScrolling;
+        private static ModConfigSpec.BooleanValue advancedTooltipsShowsIotaNBT;
+        private static ModConfigSpec.BooleanValue staticActiveSlates;
+
+        public Client(ModConfigSpec.Builder builder) {
+            ctrlTogglesOffStrokeOrder = builder.comment(
+                    "Whether the ctrl key will instead turn *off* the color gradient on patterns")
+                .define("ctrlTogglesOffStrokeOrder", DEFAULT_CTRL_TOGGLES_OFF_STROKE_ORDER);
+            disableInworldScrolling = builder.comment(
+                    "Disable scrolling input for spellbooks and abaci in the normal world, keeping keybinds and staff screen scrolling normal")
+                .define("disableInworldScrolling", DEFAULT_DISABLE_INWORLD_SCROLLING);
+            invertSpellbookScrollDirection = builder.comment(
+                    "Whether scrolling up (as opposed to down) will increase the page index of the spellbook, and " +
+                        "vice versa")
+                .define("invertSpellbookScrollDirection", DEFAULT_INVERT_SPELLBOOK_SCROLL);
+            invertAbacusScrollDirection = builder.comment(
+                    "Whether scrolling up (as opposed to down) will increase the value of the abacus, and vice versa")
+                .define("invertAbacusScrollDirection", DEFAULT_INVERT_ABACUS_SCROLL);
+            gridSnapThreshold = builder.comment(
+                    "When using a staff, the distance from one dot you have to go to snap to the next dot, where 0.5 " +
+                        "means 50% of the way.")
+                .defineInRange("gridSnapThreshold", DEFAULT_GRID_SNAP_THRESHOLD, 0.5, 1.0);
+            clickingTogglesDrawing = builder.comment(
+                    "Whether you click to start and stop drawing instead of clicking and dragging")
+                .define("clickingTogglesDrawing", DEFAULT_CLICKING_TOGGLES_DRAWING);
+            advancedTooltipsShowsIotaNBT = builder.comment(
+                    "Whether enabling advanced tooltips (F3+H) should display the full NBT of iotas stored in items " +
+                        "like foci and spellbooks")
+                .define("advancedTooltipsShowsIotaNBT", DEFAULT_ADVANCED_TOOLTIPS_SHOWS_IOTA_NBT);
+            staticActiveSlates = builder.comment(
+                    "Whether patterns on active slates should be rendered without wobble (improves performance with lots of active slates)")
+                .define("staticActiveSlates", DEFAULT_STATIC_ACTIVE_SLATES);
+        }
+
+        @Override
+        public boolean disableInworldScrolling() {
+            return disableInworldScrolling.get();
+        }
+
+        @Override
+        public boolean invertSpellbookScrollDirection() {
+            return invertSpellbookScrollDirection.get();
+        }
+
+        @Override
+        public boolean invertAbacusScrollDirection() {
+            return invertAbacusScrollDirection.get();
+        }
+
+        @Override
+        public boolean ctrlTogglesOffStrokeOrder() {
+            return ctrlTogglesOffStrokeOrder.get();
+        }
+
+        @Override
+        public double gridSnapThreshold() {
+            return gridSnapThreshold.get();
+        }
+
+        @Override
+        public boolean clickingTogglesDrawing() {
+            return clickingTogglesDrawing.get();
+        }
+
+        @Override
+        public boolean advancedTooltipsShowsIotaNBT() { 
+          return advancedTooltipsShowsIotaNBT.get(); 
+        }
+      
+        @Override
+        public boolean staticActiveSlates() { 
+          return staticActiveSlates.get(); 
+        }
+    }
+
+    public static class Server implements HexConfig.ServerConfigAccess {
+        private static ModConfigSpec.IntValue opBreakHarvestLevel;
+        private static ModConfigSpec.IntValue maxOpCount;
+        private static ModConfigSpec.IntValue maxSpellCircleLength;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> actionDenyList;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> circleActionDenyList;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> costRescaleList;
+        private static Map<ResourceLocation, Double> costRescaleMap = new HashMap<>();
+        private static ModConfigSpec.DoubleValue globalCostScaling;
+
+        private static ModConfigSpec.BooleanValue greaterTeleportSplatsItems;
+        private static ModConfigSpec.BooleanValue villagersOffendedByMindMurder;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> tpDimDenyList;
+        private static ModConfigSpec.BooleanValue doesTrueNameHaveAmbit;
+        private static ModConfigSpec.DoubleValue traderScrollChance;
+
+        private static ModConfigSpec.ConfigValue<List<? extends String>> fewScrollTables;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> someScrollTables;
+        private static ModConfigSpec.ConfigValue<List<? extends String>> manyScrollTables;
+
+
+        public Server(ModConfigSpec.Builder builder) {
+            builder.push("Spells");
+            maxOpCount = builder.comment("The maximum number of actions that can be executed in one tick, to avoid " +
+                    "hanging the server.")
+                .defineInRange("maxOpCount", DEFAULT_MAX_OP_COUNT, 0, Integer.MAX_VALUE);
+
+            opBreakHarvestLevel = builder.comment(
+                "The harvest level of the Break Block spell.",
+                "0 = wood, 1 = stone, 2 = iron, 3 = diamond, 4 = netherite."
+            ).defineInRange("opBreakHarvestLevel", DEFAULT_OP_BREAK_HARVEST_LEVEL, 0, 4);
+
+            greaterTeleportSplatsItems = builder.comment(
+                    "Should items fly out of the player's inventory when using Greater Teleport?"
+            ).define("greaterTeleportSplatsItems", DEFAULT_GREATER_TELEPORT_SPLATS_ITEMS);
+
+            actionDenyList = builder.comment(
+                    "Resource locations of disallowed actions. Trying to cast one of these will result in a mishap. " +
+                        "For example, hexcasting:get_caster will prevent Mind's Reflection.")
+                .defineList("actionDenyList", List.of(), Server::isValidReslocArg);
+
+            costRescaleList = builder.comment(
+                    "Maps resource locations to the scaling factor for that specific action's media cost. " +
+                        "For example, hexcasting:add_motion 3 will make Impulse cost 3x as much.")
+                .defineList("costRescaleList", List.of(), Server::validateAndStoreMapping);
+
+            globalCostScaling = builder.comment(
+                    "All media costs, except for actions in the #hexcasting:cannot_modify_cost tag, will be multiplied by this value." +
+                        "If you want to modify the cost of an action in that tag, use the per-action list above.")
+                .defineInRange("globalCostScaling", DEFAULT_GLOBAL_COST_SCALING, 0.0, Double.MAX_VALUE);
+            builder.pop();
+
+            builder.push("Spell Circles");
+            maxSpellCircleLength = builder.comment("The maximum number of slates in a spell circle")
+                .defineInRange("maxSpellCircleLength", DEFAULT_MAX_SPELL_CIRCLE_LENGTH, 4, Integer.MAX_VALUE);
+
+            circleActionDenyList = builder.comment(
+                    "Resource locations of disallowed actions within circles. Trying to cast one of these in a circle" +
+                        " will result in a mishap. For example, hexcasting:get_caster will prevent Mind's Reflection.")
+                .defineList("circleActionDenyList", List.of(), Server::isValidReslocArg);
+            builder.pop();
+
+            builder.push("Loot");
+            traderScrollChance = builder.comment("The chance for wandering traders to sell an Ancient Scroll")
+                .defineInRange("traderScrollChance", DEFAULT_TRADER_SCROLL_CHANCE, 0.0, 1.0);
+
+            // builders for loot (eg. scroll/lore/cypher pools and chances) should go here
+            builder.pop();
+
+            villagersOffendedByMindMurder = builder.comment(
+                    "Should villagers take offense when you flay the mind of their fellow villagers?")
+                .define("villagersOffendedByMindMurder", true);
+
+            tpDimDenyList = builder.comment("Resource locations of dimensions you can't Blink or Greater Teleport in.")
+                .defineList("tpDimDenyList", DEFAULT_DIM_TP_DENYLIST, Server::isValidReslocArg);
+
+            doesTrueNameHaveAmbit = builder.comment(
+                    "When false, makes player reference iotas behave as normal entity reference iotas")
+                .define("doesTrueNameHaveAmbit", DEFAULT_TRUE_NAME_HAS_AMBIT);
+        }
+
+        @Override
+        public int opBreakHarvestLevelBecauseForgeThoughtItWasAGoodIdeaToImplementHarvestTiersUsingAnHonestToGodTopoSort() {
+            return opBreakHarvestLevel.get();
+        }
+
+        @Override
+        public int maxOpCount() {
+            return maxOpCount.get();
+        }
+
+        @Override
+        public int maxSpellCircleLength() {
+            return maxSpellCircleLength.get();
+        }
+
+        @Override
+        public boolean isActionAllowed(ResourceLocation actionID) {
+            return noneMatch(actionDenyList.get(), actionID);
+        }
+
+        @Override
+        public boolean isActionAllowedInCircles(ResourceLocation actionID) {
+            return noneMatch(circleActionDenyList.get(), actionID);
+        }
+
+        @Override
+        public double getActionCostScaling(ResourceLocation actionID) {
+            if (costRescaleMap.size() != costRescaleList.get().size()) {
+                removeStaleCostScaleMappings();
+            }
+            return costRescaleMap.getOrDefault(actionID, 1.0);
+        }
+
+        @Override
+        public double globalCostScaling() { return globalCostScaling.get(); }
+
+        @Override
+        public boolean doesGreaterTeleportSplatItems() { return greaterTeleportSplatsItems.get(); }
+
+        @Override
+        public boolean doVillagersTakeOffenseAtMindMurder() {
+            return villagersOffendedByMindMurder.get();
+        }
+
+        @Override
+        public boolean canTeleportInThisDimension(ResourceKey<Level> dimension) {
+            return noneMatch(tpDimDenyList.get(), dimension.location());
+        }
+
+        @Override
+        public boolean trueNameHasAmbit() {
+            return doesTrueNameHaveAmbit.get();
+        }
+
+        @Override
+        public double traderScrollChance() {
+            return traderScrollChance.get();
+        }
+
+        private static boolean isValidReslocArg(Object o) {
+            return o instanceof String s && ResourceLocation.tryParse(s) != null;
+        }
+
+        private static boolean validateAndStoreMapping(Object o) {
+            if (o instanceof String s) {
+                try {
+                    String[] split = s.split(" ");
+                    ResourceLocation loc = ResourceLocation.parse(split[0]);
+                    double scale = Double.parseDouble(split[1]);
+                    costRescaleMap.put(loc, scale);
+                    return true;
+                } catch (Exception e) {
+                    costRescaleMap.clear();
+                    return false;
+                }
+            }
+            costRescaleMap.clear();
+            return false;
+        }
+
+        /**
+         * When an element is removed from the config-backed {@code costRescaleList}, there's no way for the {@code costRescaleMap}
+         * to know that it's gone since Forge's list validation is only done on a per-element basis. To handle this, we
+         * check if {@code costRescaleList} and {@code costRescaleMap} are the same size, and if not we call this method
+         * to remove the erroneous key/value pairs from the map.
+         */
+        private static void removeStaleCostScaleMappings() {
+            var actualKeys = costRescaleList.get().stream().map(entry -> {
+                String[] split = entry.split(" ");
+                return ResourceLocation.parse(split[0]);
+            }).collect(Collectors.toSet());
+            costRescaleMap.keySet().retainAll(actualKeys);
+        }
+    }
+}

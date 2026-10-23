@@ -1,0 +1,110 @@
+package at.petrak.hexcasting.fabric.cc;
+
+import at.petrak.hexcasting.api.addldata.*;
+import at.petrak.hexcasting.common.entities.EntityWallScroll;
+import at.petrak.hexcasting.common.lib.HexDataComponents;
+import at.petrak.hexcasting.fabric.cc.adimpl.*;
+import net.fabricmc.fabric.api.lookup.v1.item.ItemApiLookup;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.Mob;
+import net.minecraft.world.entity.decoration.ItemFrame;
+import net.minecraft.world.entity.item.ItemEntity;
+import org.ladysnake.cca.api.v3.component.ComponentFactory;
+import org.ladysnake.cca.api.v3.component.ComponentKey;
+import org.ladysnake.cca.api.v3.component.ComponentRegistry;
+import org.ladysnake.cca.api.v3.entity.EntityComponentFactoryRegistry;
+import org.ladysnake.cca.api.v3.entity.EntityComponentInitializer;
+import org.ladysnake.cca.api.v3.entity.RespawnCopyStrategy;
+import org.ladysnake.cca.api.v3.item.ItemComponentInitializer;
+import org.ladysnake.cca.api.v3.item.ItemComponentMigrationRegistry;
+
+import java.util.function.Function;
+
+import static at.petrak.hexcasting.api.HexAPI.modLoc;
+
+public class HexCardinalComponents implements EntityComponentInitializer, ItemComponentInitializer {
+    // entities
+    public static final ComponentKey<CCBrainswept> BRAINSWEPT = ComponentRegistry.getOrCreate(modLoc("brainswept"),
+        CCBrainswept.class);
+    public static final ComponentKey<CCFavoredPigment> FAVORED_PIGMENT = ComponentRegistry.getOrCreate(
+        modLoc("favored_pigment"), CCFavoredPigment.class);
+    public static final ComponentKey<CCSentinel> SENTINEL = ComponentRegistry.getOrCreate(modLoc("sentinel"),
+        CCSentinel.class);
+    public static final ComponentKey<CCFlight> FLIGHT = ComponentRegistry.getOrCreate(modLoc("flight"),
+        CCFlight.class);
+
+    public static final ComponentKey<CCAltiora> ALTIORA = ComponentRegistry.getOrCreate(modLoc("altiora"),
+        CCAltiora.class);
+    public static final ComponentKey<CCStaffcastImage> STAFFCAST_IMAGE = ComponentRegistry.getOrCreate(modLoc(
+        "harness"),
+        CCStaffcastImage.class);
+    public static final ComponentKey<CCPatterns> PATTERNS = ComponentRegistry.getOrCreate(modLoc("patterns"),
+        CCPatterns.class);
+
+    public static final ComponentKey<CCClientCastingStack> CLIENT_CASTING_STACK = ComponentRegistry.getOrCreate(modLoc("client_casting_stack"),
+            CCClientCastingStack.class);
+
+    public static final ComponentKey<CCPigment> PIGMENT = ComponentRegistry.getOrCreate(modLoc("pigment"),
+        CCPigment.class);
+    public static final ComponentKey<CCIotaHolder> IOTA_HOLDER = ComponentRegistry.getOrCreate(modLoc("iota_holder"),
+        CCIotaHolder.class);
+    public static final ComponentKey<CCMediaHolder> MEDIA_HOLDER = ComponentRegistry.getOrCreate(modLoc("media_holder"),
+        CCMediaHolder.class);
+    public static final ComponentKey<CCHexHolder> HEX_HOLDER = ComponentRegistry.getOrCreate(modLoc("hex_holder"),
+        CCHexHolder.class);
+
+    public static final ComponentKey<CCVariantItem> VARIANT_ITEM = ComponentRegistry.getOrCreate(modLoc("variant_item"),
+        CCVariantItem.class);
+
+    public static final ItemApiLookup<ADMediaHolder, Void> MEDIA_HOLDER_LOOKUP = ItemApiLookup.get(modLoc("media_holder_item"), ADMediaHolder.class, Void.class);
+
+    public static final ItemApiLookup<ADIotaHolder, Void> IOTA_HOLDER_LOOKUP = ItemApiLookup.get(modLoc("iota_holder_item"), ADIotaHolder.class, Void.class);
+
+    public static final ItemApiLookup<ADPigment, Void> PIGMENT_ITEM_LOOKUP = ItemApiLookup.get(modLoc("pigment_item"), ADPigment.class, Void.class);
+
+    public static final ItemApiLookup<ADHexHolder, Void> HEX_HOLDER_LOOKUP = ItemApiLookup.get(modLoc("hex_holder_item"), ADHexHolder.class, Void.class);
+
+    public static final ItemApiLookup<ADVariantItem, Void> VARIANT_ITEM_LOOKUP = ItemApiLookup.get(modLoc("variant_item"), ADVariantItem.class, Void.class);
+
+    @Override
+    public void registerEntityComponentFactories(EntityComponentFactoryRegistry registry) {
+        registry.registerFor(Mob.class, BRAINSWEPT, CCBrainswept::new);
+        registry.registerForPlayers(FAVORED_PIGMENT, CCFavoredPigment::new, RespawnCopyStrategy.ALWAYS_COPY);
+        registry.registerForPlayers(SENTINEL, CCSentinel::new, RespawnCopyStrategy.ALWAYS_COPY);
+        registry.registerForPlayers(ALTIORA, CCAltiora::new, RespawnCopyStrategy.LOSSLESS_ONLY);
+        registry.registerForPlayers(CLIENT_CASTING_STACK, CCClientCastingStack::new, RespawnCopyStrategy.NEVER_COPY);
+        // Fortunately these are all both only needed on the server and don't want to be copied across death
+        registry.registerFor(ServerPlayer.class, FLIGHT, CCFlight::new);
+        registry.registerFor(ServerPlayer.class, STAFFCAST_IMAGE, CCStaffcastImage::new);
+        registry.registerFor(ServerPlayer.class, PATTERNS, CCPatterns::new);
+
+
+        registry.registerFor(ItemEntity.class, IOTA_HOLDER, wrapItemEntityDelegate(
+            ItemDelegatingEntityIotaHolder.ToItemEntity::new));
+        registry.registerFor(ItemFrame.class, IOTA_HOLDER, wrapItemEntityDelegate(
+            ItemDelegatingEntityIotaHolder.ToItemFrame::new));
+        registry.registerFor(EntityWallScroll.class, IOTA_HOLDER,
+            wrapItemEntityDelegate(ItemDelegatingEntityIotaHolder.ToWallScroll::new));
+    }
+
+    @Override
+    public void registerItemComponentMigrations(ItemComponentMigrationRegistry registry) {
+        registry.registerMigration(modLoc("pigment"), HexDataComponents.PIGMENT.get());
+
+        registry.registerMigration(modLoc("iota_holder"), HexDataComponents.IOTA_HOLDER_IOTA.get());
+        // oh havoc, you think you're so funny
+        // the worst part is you're /right/
+
+        registry.registerMigration(modLoc("media_holder"), HexDataComponents.MEDIA.get());
+
+        registry.registerMigration(modLoc("hex_holder"), HexDataComponents.HEX_HOLDER_PATTERNS.get());
+
+        registry.registerMigration(modLoc("variant_item"), HexDataComponents.ITEM_VARIANT.get());
+    }
+
+    private <E extends Entity> ComponentFactory<E, CCEntityIotaHolder.Wrapper> wrapItemEntityDelegate(Function<E,
+        ItemDelegatingEntityIotaHolder> make) {
+        return e -> new CCEntityIotaHolder.Wrapper(make.apply(e));
+    }
+}

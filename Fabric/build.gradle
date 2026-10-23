@@ -1,0 +1,212 @@
+plugins {
+    // id 'fabric-loom' version "1.8.9"
+    id 'com.gradleup.shadow'
+}
+
+architectury {
+    platformSetupLoomIde()
+    fabric()
+}
+
+// FIXME: update dependencies/versions before releasing 0.12
+pkSubproj {
+    pkPublish = true
+    curseforgeJar = remapJar.archiveFile
+    curseforgeDependencies([
+        "paucal",
+        "patchouli",
+        "fabric-language-kotlin",
+        "inline",
+        "cloth-config",
+        "cardinal-components-api",
+        "fabric-api",
+    ])
+    modrinthJar = remapJar.archiveFile
+    modrinthDependencies([
+        "paucal:dabyDTwJ", // 0.6.0-fabric
+        "patchouli:1.20.1-80-fabric",
+        "fabric-language-kotlin:1.13.7+kotlin.2.2.21",
+        "inline:1.20.1-1.2.2-fabric",
+        "cloth-config:11.1.106+fabric",
+        "cardinal-components-api:5.2.1",
+        "fabric-api:0.84.0+1.20.1",
+    ])
+}
+
+
+loom {
+    mixin.defaultRefmapName = "hexcasting.mixins.refmap.json"
+
+    accessWidenerPath = file("src/main/resources/fabricasting.accesswidener")
+
+    runs {
+        client {
+            client()
+            setConfigName("Fabric Client")
+        }
+        server {
+            server()
+            setConfigName("Fabric Server")
+        }
+        datagen {
+            client()
+            vmArg "-Dfabric-api.datagen"
+            vmArg "-Dfabric-api.datagen.modid=${modID}"
+            vmArg "-Dfabric-api.datagen.output-dir=${file("src/generated/resources")}"
+        }
+
+        configureEach {
+            runDir "Fabric/run"
+            ideConfigGenerated(true)
+        }
+    }
+}
+
+// god only knows what the hell this does
+configurations {
+    common {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+    compileClasspath.extendsFrom common
+    runtimeClasspath.extendsFrom common
+    developmentFabric.extendsFrom common
+
+    // Files in this configuration will be bundled into your mod using the Shadow plugin.
+    // Don't use the `shadow` configuration from the plugin itself as it's meant for excluding files.
+    shadowBundle {
+        canBeResolved = true
+        canBeConsumed = false
+    }
+}
+
+repositories {
+    mavenCentral()
+    mavenLocal()
+
+    // serialization hooks
+    maven { url = "https://maven.hexxy.media" }
+
+    // paucal, patchi, inline, JEI
+    maven { url 'https://maven.blamejared.com' }
+    // modmenu and clothconfig
+    maven { url "https://maven.shedaniel.me/" }
+    // Cardinal Components
+    maven {
+        url = "https://jitpack.io"
+        content {
+            includeGroupAndSubgroups 'com.github'
+        }
+    }
+    maven { url = "https://maven.ladysnake.org/releases" }
+    maven { url "https://mvn.devos.one/snapshots/" }
+    // JEI fallback mirror
+    maven { url "https://modmaven.dev" }
+    // EMI (temporarily changed from https://maven.terraformersmc.com/releases/ due to intermittent errors)
+    maven { url "https://maven.gnomecraft.net/releases" }
+    exclusiveContent {
+        forRepository {
+            maven { url = "https://api.modrinth.com/maven" }
+        }
+        filter { includeGroup "maven.modrinth" }
+    }
+    // pehkui
+    maven { url = "https://jitpack.io" }
+}
+
+dependencies {
+    modImplementation("net.fabricmc:fabric-language-kotlin:${fabricLanguageKotlinVersion}")
+    modImplementation "net.fabricmc:fabric-loader:${fabricLoaderVersion}"
+    modImplementation "net.fabricmc.fabric-api:fabric-api:${fabricVersion}"
+
+    implementation(project(path: ':Common', configuration: 'namedElements')) { transitive false }
+    shadowBundle project(path: ':Common', configuration: 'transformProductionFabric')
+
+    // === MANDATORY DEPS ===
+    modImplementation("at.petra-k:paucal:$paucalVersion+$minecraftVersion-fabric")
+    // dear mod devs, don't put the platform in the middle of your version code
+    modImplementation "vazkii.patchouli:Patchouli:1.21-$patchouliVersion-FABRIC-SNAPSHOT"
+    modImplementation "com.samsthenerd.inline:inline-fabric:$minecraftVersion-$inlineVersion"
+    modImplementation "dev.emi:trinkets:${trinketsVersion}"
+
+    modImplementation "org.ladysnake.cardinal-components-api:cardinal-components-base:$cardinalComponentsVersion"
+//    modImplementation "org.ladysnake.cardinal-components-api:cardinal-components-util:$cardinalComponentsVersion"
+    modImplementation "org.ladysnake.cardinal-components-api:cardinal-components-entity:$cardinalComponentsVersion"
+    modImplementation "org.ladysnake.cardinal-components-api:cardinal-components-item:$cardinalComponentsVersion"
+    modImplementation "org.ladysnake.cardinal-components-api:cardinal-components-block:$cardinalComponentsVersion"
+
+    include(implementation(annotationProcessor("io.github.llamalad7:mixinextras-fabric:0.5.0")))
+
+    // === OPTIONAL DEPS ===
+
+    modApi("me.shedaniel.cloth:cloth-config-fabric:$clothConfigVersion") {
+        exclude(group: "net.fabricmc.fabric-api")
+    }
+    modCompileOnly "dev.emi:emi-fabric:${emiVersion}:api"
+    modLocalRuntime "dev.emi:emi-fabric:${emiVersion}"
+
+    modLocalRuntime "dev.architectury:architectury-fabric:$architecturyVersion"
+    modLocalRuntime "com.samsthenerd.inline:inline-fabric:$minecraftVersion-$inlineVersion"
+
+    modCompileOnlyApi("mezz.jei:jei-${minecraftVersion}-fabric-api:${jeiVersion}")
+    modRuntimeOnly("mezz.jei:jei-${minecraftVersion}-fabric:${jeiVersion}")
+
+//    modImplementation "maven.modrinth:gravity-api:$gravityApiVersion"
+    modApi("com.github.Virtuoel:Pehkui:${pehkuiVersion}", {
+        exclude group: "net.fabricmc.fabric-api"
+    })
+
+    // *Something* is including an old version of modmenu with a broken mixin
+    // We can't figure out what it is
+    // so i'm just including a fresher version
+    modImplementation("com.terraformersmc:modmenu:$modmenuVersion")
+
+    // i am speed
+    // sodium is causing frustum mixin errors so don't use it
+//    modImplementation "maven.modrinth:sodium:${sodiumVersion}"
+    modImplementation "maven.modrinth:lithium:${lithiumVersion}-fabric"
+//    modImplementation "maven.modrinth:phosphor:${phosphorVersion}"
+
+
+    // === OTHER STUFF ===
+    compileOnly "org.jetbrains:annotations:$jetbrainsAnnotationsVersion"
+    testCompileOnly "org.jetbrains:annotations:$jetbrainsAnnotationsVersion"
+    compileOnly "com.demonwav.mcdev:annotations:1.0"
+    implementation group: 'com.google.code.findbugs', name: 'jsr305', version: '3.0.1'
+}
+
+sourcesJar {
+    from project(":Common").sourceSets.main.allJava
+}
+
+sourceSets {
+    main.resources.srcDirs += ['src/generated/resources', '../Common/src/generated/resources']
+}
+
+processResources {
+    from project(":Common").sourceSets.main.resources
+    inputs.property "version", project.version
+
+    filesMatching("fabric.mod.json") {
+        expand "version": project.version
+    }
+}
+
+shadowJar {
+    configurations = [project.configurations.shadowBundle]
+    archiveClassifier = 'dev-shadow'
+}
+
+remapJar {
+    inputFile.set shadowJar.archiveFile
+    dependsOn shadowJar
+}
+
+tasks.named('processResources') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+tasks.named('sourcesJar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+jar.finalizedBy(remapJar)

@@ -1,0 +1,62 @@
+package at.petrak.hexcasting.api.casting.iota;
+
+import at.petrak.hexcasting.api.casting.eval.CastingEnvironment;
+import at.petrak.hexcasting.common.lib.hex.HexIotaTypes;
+import com.mojang.serialization.MapCodec;
+import net.minecraft.ChatFormatting;
+import net.minecraft.network.RegistryFriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.network.codec.StreamCodec;
+import org.jetbrains.annotations.Nullable;
+
+/**
+ * An iota with no data associated with it.
+ */
+public class NullIota extends Iota {
+
+    public static final Component DISPLAY =
+        Component.translatable("hexcasting.tooltip.null_iota").withStyle(ChatFormatting.GRAY);
+
+    public NullIota() {
+        super(() -> HexIotaTypes.NULL.get());
+    }
+
+    @Override
+    public boolean isTruthy(@Nullable CastingEnvironment env) {
+        return false;
+    }
+
+    @Override
+    public boolean toleratesOther(Iota that) {
+        return typesMatch(this, that);
+    }
+
+    @Override
+    public int hashCode() { return 0; }
+
+    @Override
+    public Component display() {
+        return DISPLAY;
+    }
+
+    public static IotaType<NullIota> TYPE = new IotaType<>() {
+        public static final MapCodec<NullIota> CODEC = MapCodec.unit(new NullIota());
+        public static final StreamCodec<RegistryFriendlyByteBuf, NullIota> STREAM_CODEC =
+                StreamCodec.unit(new NullIota());
+
+        @Override
+        public MapCodec<NullIota> codec() {
+            return CODEC;
+        }
+
+        @Override
+        public StreamCodec<RegistryFriendlyByteBuf, NullIota> streamCodec() {
+            return STREAM_CODEC;
+        }
+
+        @Override
+        public int color() {
+            return 0xff_aaaaaa;
+        }
+    };
+}
