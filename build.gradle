@@ -41,6 +41,16 @@ sourceSets {
     test {
         kotlin.srcDirs += 'src/test/java'
     }
+    // In-game GameTests (dev runs only, not packaged into the release jar).
+    gametest {
+        compileClasspath += main.output
+        runtimeClasspath += main.output
+    }
+}
+
+configurations {
+    gametestImplementation.extendsFrom implementation
+    gametestCompileOnly.extendsFrom compileOnly
 }
 
 repositories {
@@ -107,10 +117,12 @@ neoForge {
 
     // Upstream's tests are plain JUnit tests that only need Minecraft classes on the classpath.
     addModdingDependenciesTo(sourceSets.test)
+    addModdingDependenciesTo(sourceSets.gametest)
 
     mods {
         "${project.modID}" {
             sourceSet sourceSets.main
+            sourceSet sourceSets.gametest
         }
     }
 }

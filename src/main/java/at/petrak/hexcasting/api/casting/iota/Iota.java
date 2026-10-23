@@ -14,6 +14,8 @@ import at.petrak.hexcasting.common.lib.hex.HexEvalSounds;
 import at.petrak.hexcasting.common.lib.hex.HexIotaTypes;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.gui.Font;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.FormattedCharSequence;
@@ -132,6 +134,9 @@ public abstract class Iota {
 
     public abstract Component display();
 
+    // Stripped on dedicated servers: otherwise any reflection over Iota classes there (e.g. NeoForge's
+    // data component validation) tries to load the client-only Font class and crashes.
+    @OnlyIn(Dist.CLIENT)
     public FormattedCharSequence displayWithMaxWidth(int maxWidth, Font font) {
         var splitted = font.split(display(), maxWidth - font.width("..."));
         if (splitted.isEmpty())
