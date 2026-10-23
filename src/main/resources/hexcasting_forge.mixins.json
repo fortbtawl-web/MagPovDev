@@ -1,0 +1,14 @@
+{
+  "minVersion": "0.8",
+  "required": true,
+  "compatibilityLevel": "JAVA_21",
+  "package": "at.petrak.hexcasting.forge.mixin",
+  "mixins": [
+    "ForgeMixinCursedRecipeSerializerBase",
+    "ForgeMixinTagsProvider"
+  ],
+  "client": [
+    "ForgeMixinBlockColors",
+    "ForgeMixinItemColors"
+  ]
+}

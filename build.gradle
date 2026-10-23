@@ -1,156 +1,258 @@
-import at.petrak.pkpcpbp.MiscUtil
+// Hex Casting — Reborn by Magetka
+// Unofficial NeoForge 1.21.1 port of Hex Casting (c) gamma-delta / petrak@ and contributors, MIT.
+// Single-project NeoForge build using ModDevGradle (replaces the upstream Architectury multi-loader setup).
+
+import at.petrak.hexcasting.build.Json5Filter
 
 plugins {
-    // used for something??
-    id 'dev.architectury.loom' version '1.13-SNAPSHOT' apply false
-    // used for multi-loader stuff, NOT for the archi API
-    id 'architectury-plugin' version '3.4-SNAPSHOT'
-    id 'com.gradleup.shadow' version '8.3.6' apply false
-
-    id "org.jetbrains.kotlin.jvm"
+    id 'java-library'
     id 'idea'
-    // This needs to be in the root
-    // https://github.com/FabricMC/fabric-loom/issues/612#issuecomment-1198444120
-    // Also it looks like property lookups don't work this early
-    id 'fabric-loom' version '1.9+' apply false
-
-    id("at.petra-k.pkpcpbp.PKPlugin") version "0.2.0-pre-112"
-    id("at.petra-k.pkpcpbp.PKSubprojPlugin") version "0.2.0-pre-112" apply false
-    id("at.petra-k.pkpcpbp.PKJson5Plugin") version "0.2.0-pre-112" apply false
+    id 'maven-publish'
+    id 'org.jetbrains.kotlin.jvm'
+    id 'net.neoforged.moddev'
 }
 
-architectury {
-    minecraft = project.minecraftVersion
+group = project.modGroup
+version = "${project.modVersion}"
+
+base {
+    archivesName = "${project.jarBaseName}-${project.minecraftVersion}"
 }
 
-pkpcpbp {
-    // if something goes wrong in CI, make sure we can see the logs to figure out why
-    superDebugInfo = System.getenv("CI") != null
-    // we set the maven coordinates manually in the subprojects block
-    doProjectMetadata = false
-    setupJarMetadata = true
-    setupMavenMetadata = true
-    javaVersion = 21
-    modInfo {
-        modID = project.modID
-        mcVersion = project.minecraftVersion
-        modVersion = project.modVersion
+java {
+    toolchain.languageVersion = JavaLanguageVersion.of(21)
+    withSourcesJar()
+}
+
+kotlin {
+    jvmToolchain(21)
+}
+
+// Upstream keeps Kotlin and Java sources side by side in src/main/java.
+sourceSets {
+    main {
+        kotlin.srcDirs += 'src/main/java'
+        resources {
+            srcDir 'src/generated/resources'
+            exclude '**/.cache'
+            exclude '**/*.bbmodel'
+        }
     }
-    curseforgeInfo {
-        id = 569849
-        stability = "beta"
-        token = System.getenv("CURSEFORGE_TOKEN")
-    }
-    modrinthInfo {
-        id = "nTW3yKrm"
-        stability = "beta"
-        token = System.getenv("MODRINTH_TOKEN")
+    test {
+        kotlin.srcDirs += 'src/test/java'
     }
 }
 
-subprojects {
-    apply plugin: 'dev.architectury.loom'
-    apply plugin: 'architectury-plugin'
-    apply plugin: 'java'
-    apply plugin: 'kotlin'
-    apply plugin: 'maven-publish'
-    apply plugin: 'at.petra-k.pkpcpbp.PKSubprojPlugin'
-    apply plugin: 'at.petra-k.pkpcpbp.PKJson5Plugin'
-
-    group = "at.petra-k.$modID"
-    base.archivesName = "$modID-$platform-$minecraftVersion"
-    version = modVersion
-
-    def isRelease = MiscUtil.isRelease(MiscUtil.getMostRecentPush(project))
-    def buildNumber = System.getenv("BUILD_NUMBER")
-    if (!isRelease && buildNumber != null) {
-        version += "-pre-$buildNumber"
+repositories {
+    mavenCentral()
+    // PAUCAL, Patchouli, Inline, JEI
+    maven { url = 'https://maven.blamejared.com' }
+    // Curios, Caelus
+    maven { url = 'https://maven.theillusivec4.top/' }
+    // Architectury API
+    maven { url = 'https://maven.architectury.dev/' }
+    // EMI
+    maven { url = 'https://maven.terraformersmc.com/releases/' }
+    maven {
+        name = 'Kotlin for Forge'
+        url = 'https://thedarkcolour.github.io/KotlinForForge/'
+        content { includeGroup 'thedarkcolour' }
     }
-
-    pkSubproj {
-        platform = project.platform
-        artifactId = base.archivesName.get()
-        versionDisplayName = "$platform-$minecraftVersion-$modVersion"
+    exclusiveContent {
+        forRepository { maven { url = 'https://api.modrinth.com/maven' } }
+        filter { includeGroup 'maven.modrinth' }
     }
-
-    pkJson5 {
-        autoProcessJson5 = true
-        autoProcessJson5Flattening = true
+    exclusiveContent {
+        // Pehkui
+        forRepository { maven { url = 'https://jitpack.io' } }
+        filter { includeGroup 'com.github.Virtuoel' }
     }
+}
 
-    loom {
-        silentMojangMappingsLicense() // heroes in a half-shell
-    }
+neoForge {
+    version = project.neoforgeVersion
 
-    dependencies {
-        minecraft "net.minecraft:minecraft:$rootProject.minecraftVersion"
-        mappings loom.officialMojangMappings()
-    }
+    // Picks up src/main/resources/META-INF/accesstransformer.cfg automatically.
 
-    sourceSets.main.kotlin.srcDirs += 'src/main/java'
-
-    if (project.path != ':Common') {
-        loom {
-            mods {
-                main { // to match the default mod generated for Forge
-                    sourceSet project.sourceSets.main
-                    sourceSet project(':Common').sourceSets.main
-                }
-            }
+    runs {
+        configureEach {
+            systemProperty 'forge.logging.markers', 'REGISTRIES'
+            logLevel = org.slf4j.event.Level.INFO
+        }
+        client {
+            client()
+            gameDirectory = file('run/client')
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.modID
+        }
+        server {
+            server()
+            gameDirectory = file('run/server')
+            programArgument '--nogui'
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.modID
+        }
+        gameTestServer {
+            type = 'gameTestServer'
+            gameDirectory = file('run/gametest')
+            systemProperty 'neoforge.enabledGameTestNamespaces', project.modID
+        }
+        // Generates models, blockstates, recipes, tags, loot tables, advancements and NeoForge-specific data.
+        data {
+            data()
+            gameDirectory = file('run/data')
+            programArguments.addAll '--mod', project.modID, '--all',
+                    '--output', file('src/generated/resources').absolutePath,
+                    '--existing', file('src/main/resources').absolutePath
         }
     }
 
-    processResources {
-        exclude '.cache'
+    // Upstream's tests are plain JUnit tests that only need Minecraft classes on the classpath.
+    addModdingDependenciesTo(sourceSets.test)
+
+    mods {
+        "${project.modID}" {
+            sourceSet sourceSets.main
+        }
+    }
+}
+
+configurations {
+    // Mods present only in dev runs; not exposed as dependencies of the published artifact.
+    localRuntime
+    runtimeClasspath.extendsFrom localRuntime
+}
+
+dependencies {
+    // === MANDATORY ===
+    implementation("thedarkcolour:kotlinforforge-neoforge:${kotlinForForgeVersion}") {
+        exclude group: 'net.neoforged.fancymodloader', module: 'loader'
+    }
+    implementation "maven.modrinth:paucal:${paucalVersion}"
+    implementation "vazkii.patchouli:Patchouli:${patchouliVersion}"
+    implementation "com.illusivesoulworks.caelus:caelus-neoforge:${caelusVersion}"
+    implementation "com.samsthenerd.inline:inline-neoforge:${inlineVersion}"
+    // Required at runtime by PAUCAL and Inline respectively
+    localRuntime "dev.architectury:architectury-neoforge:${architecturyVersion}"
+    localRuntime "maven.modrinth:cloth-config:${clothConfigVersion}"
+
+    // === OPTIONAL ===
+    compileOnly "top.theillusivec4.curios:curios-neoforge:${curiosVersion}:api"
+    localRuntime "top.theillusivec4.curios:curios-neoforge:${curiosVersion}"
+
+    compileOnly "mezz.jei:jei-${minecraftVersion}-common-api:${jeiVersion}"
+    compileOnly "mezz.jei:jei-${minecraftVersion}-neoforge-api:${jeiVersion}"
+    localRuntime "mezz.jei:jei-${minecraftVersion}-neoforge:${jeiVersion}"
+
+    compileOnly "dev.emi:emi-neoforge:${emiVersion}:api"
+
+    compileOnly("com.github.Virtuoel:Pehkui:${pehkuiVersion}") { transitive = false }
+
+    // === OTHER ===
+    compileOnly "org.jetbrains:annotations:${jetbrainsAnnotationsVersion}"
+    implementation 'com.google.code.findbugs:jsr305:3.0.1'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.10.2'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+    testCompileOnly "org.jetbrains:annotations:${jetbrainsAnnotationsVersion}"
+}
+
+test {
+    useJUnitPlatform()
+    // The tests use DummyXplatAbstractions (src/test/resources); keep the NeoForge service
+    // registrations from the main resources off the test classpath so the ServiceLoader finds only one.
+    classpath = classpath.filter { it != sourceSets.main.output.resourcesDir }
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.release = 21
+    options.compilerArgs << '-Xmaxerrs' << '1000'
+}
+
+javadoc {
+    options.addStringOption('Xdoclint:none', '-quiet')
+}
+
+// neoforge.mods.toml is generated from src/main/templates with values from gradle.properties.
+def generateModMetadata = tasks.register('generateModMetadata', ProcessResources) {
+    def props = [
+            mod_id                       : project.modID,
+            mod_name                     : project.modName,
+            mod_version                  : project.version,
+            mod_license                  : project.modLicense,
+            minecraft_version_range      : project.minecraftVersionRange,
+            neoforge_version_range       : project.neoforgeVersionRange,
+            kotlinforforge_version_range : project.kotlinForForgeVersionRange,
+            paucal_version_range         : project.paucalVersionRange,
+            patchouli_version_range      : project.patchouliVersionRange,
+            caelus_version_range         : project.caelusVersionRange,
+            inline_version_range         : project.inlineVersionRange,
+    ]
+    inputs.properties props
+    expand props
+    from 'src/main/templates'
+    into 'build/generated/sources/modMetadata'
+}
+sourceSets.main.resources.srcDir generateModMetadata
+neoForge.ideSyncTask generateModMetadata
+
+processResources {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    def buildProps = [modVersion: project.version, modID: project.modID]
+    inputs.properties buildProps
+    filesMatching('pack.mcmeta') {
+        expand buildProps
     }
 
-    java {
-        withSourcesJar()
-        sourceCompatibility = JavaVersion.VERSION_21
-        targetCompatibility = JavaVersion.VERSION_21
+    // json5 sources (lang files, sounds) are converted to plain json, as upstream's PKJson5 plugin did.
+    filesMatching(['assets/**/*.flatten.json5', 'data/**/*.flatten.json5']) {
+        path = path.replace('.flatten.json5', '.json')
+        filter(Json5Filter.Flattening)
+    }
+    filesMatching(['assets/**/*.json5', 'data/**/*.json5']) {
+        if (path.endsWith('.json5')) {
+            path = path.replace('.json5', '.json')
+            filter(Json5Filter.Plain)
+        }
     }
 
-    tasks.withType(JavaCompile).configureEach {
-        it.options.encoding = 'UTF-8'
-        it.options.release = 21
-    }
+    from('LICENSE.txt') { into 'META-INF' }
+    from('NOTICE.md') { into 'META-INF' }
+}
 
-    // Disables Gradle's custom module metadata from being published to maven. The
-    // metadata includes mapped dependencies which are not reasonably consumable by
-    // other mod developers.
-    tasks.withType(GenerateModuleMetadata).configureEach {
-        enabled = false
-    }
+tasks.named('sourcesJar') {
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
 
+jar {
+    // Keep the suggested release name: hexcasting-reborn-by-magetka-1.21.1.jar
+    archiveVersion = ''
+    manifest {
+        attributes([
+                'Specification-Title'     : project.modID,
+                'Specification-Vendor'    : 'gamma-delta / petrak@',
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : 'Hex Casting (Reborn by Magetka)',
+                'Implementation-Version'  : project.version,
+                'Implementation-Vendor'   : 'Magetka (NeoForge 1.21.1 port)',
+        ])
+    }
+}
+
+publishing {
+    publications {
+        register('mavenJava', MavenPublication) {
+            from components.java
+        }
+    }
     repositories {
-        exclusiveContent {
-            filter {
-                includeGroup("libs")
-            }
-            forRepository {
-                flatDir { dir(rootProject.file("libs")) }
-            }
-        }
+        maven { url = "file://${project.projectDir}/repo" }
     }
 }
 
-allprojects {
-    architectury {
-//        compileOnly()
+idea {
+    module {
+        downloadSources = true
+        downloadJavadoc = true
     }
-
-    gradle.projectsEvaluated {
-        tasks.withType(JavaCompile).configureEach {
-            options.compilerArgs << "-Xmaxerrs" << "1000"
-        }
-    }
-
-    // disable most javadoc warnings
-    javadoc.options.addStringOption('Xdoclint:none', '-quiet')
-}
-
-tasks.register("runAllDatagen") {
-    dependsOn ":Neoforge:runXplatDatagen"
-    dependsOn ":Neoforge:runDatagen"
-    dependsOn ":Fabric:runDatagen"
 }
