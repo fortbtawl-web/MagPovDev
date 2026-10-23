@@ -1,0 +1,87 @@
+modLoader = "kotlinforforge"
+loaderVersion = "${kotlinforforge_version_range}"
+license = "${mod_license}"
+issueTrackerURL = "https://github.com/fortbtawl-web/MagPovDev/issues"
+
+[[mods]]
+modId = "${mod_id}"
+version = "${mod_version}"
+displayName = "${mod_name}"
+displayURL = "https://github.com/fortbtawl-web/MagPovDev"
+logoFile = "logo.png"
+credits = "Reborn by Magetka. Original mod: Hex Casting by petrak_at (petrak@, aka gamma-delta) and the FallingColors contributors. Falkory for textures; Wiresegal for lots of polish; Alwinfy for visual effects, proofreading, and code help; Kra3tor for sound effects; naj77 for the nice logo; and all of petrak@'s wonderful patrons."
+authors = "petrak@ (aka gamma-delta / petrak_at) and contributors; NeoForge 1.21.1 port: Magetka"
+description = '''
+Cast powerful Hexes on the fly by drawing patterns with a staff.
+
+Reborn by Magetka
+
+Original mod: Hex Casting
+Original author: petrak_at
+Port / adaptation: Magetka
+
+Unofficial NeoForge 1.21.1 port based on the FallingColors/HexMod 1.21 branch.
+This is NOT an official release by the original author; please report port bugs to the port's issue tracker.
+Licensed under the MIT License, (c) 2021 gamma-delta.
+'''
+
+[[mixins]]
+config = "hexplat.mixins.json"
+[[mixins]]
+config = "hexcasting_forge.mixins.json"
+
+[[dependencies.${mod_id}]]
+modId = "neoforge"
+type = "required"
+versionRange = "${neoforge_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "minecraft"
+type = "required"
+versionRange = "${minecraft_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "kotlinforforge"
+type = "required"
+versionRange = "${kotlinforforge_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "paucal"
+type = "required"
+versionRange = "${paucal_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "patchouli"
+type = "required"
+versionRange = "${patchouli_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "caelus"
+type = "required"
+versionRange = "${caelus_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "inline"
+type = "required"
+versionRange = "${inline_version_range}"
+ordering = "NONE"
+side = "BOTH"
+
+[[dependencies.${mod_id}]]
+modId = "curios"
+type = "optional"
+versionRange = "[9.5.1,)"
+ordering = "NONE"
+side = "BOTH"

@@ -1,60 +1,111 @@
-# Hex Casting
+# Hex Casting — Reborn by Magetka
 
-[![Translation language count badge](https://weblate.hexxy.media/widget/hexcasting/language-badge.svg?threshold=0)](https://weblate.hexxy.media/engage/hexcasting/)
-[![Translation percent badge](https://weblate.hexxy.media/widget/hexcasting/svg-badge.svg)](https://weblate.hexxy.media/engage/hexcasting/)
-[![Powered by hexdoc badge](https://img.shields.io/endpoint?url=https://hexxy.media/api/v0/badge/hexdoc?label=1)](https://hexcasting.hexxy.media/)
+**Неофициальный порт Hex Casting на Minecraft 1.21.1 / NeoForge 21.1.x**
+**Unofficial port of Hex Casting to Minecraft 1.21.1 / NeoForge 21.1.x**
 
-[Curseforge](https://www.curseforge.com/minecraft/mc-mods/hexcasting) | [Modrinth](https://modrinth.com/mod/hex-casting)
-| [Source](https://github.com/gamma-delta/HexMod)
+> **Reborn by Magetka**
+>
+> Original mod: Hex Casting
+> Original author: petrak_at (petrak@, aka gamma-delta) and the FallingColors contributors
+> Port / adaptation: Magetka
 
-A minecraft mod about casting Hexes, powerful and programmable magical effects, inspired by PSI.
+Это **не** официальное обновление от автора оригинального мода. Об ошибках порта сообщайте в
+[трекер этого репозитория](https://github.com/fortbtawl-web/MagPovDev/issues), а не в трекер оригинала.
 
-On Forge, this mod requires:
+This is **not** an official release by the original author. Please report bugs of this port to
+[this repository's issue tracker](https://github.com/fortbtawl-web/MagPovDev/issues), not to the upstream tracker.
 
-- PAUCAL
-- Patchouli
-- Kotlin for Forge
-- Caelus elytra api
+Hex Casting — мод о программируемой магии, вдохновлённый PSI: заклинания (хексы) создаются рисованием узоров
+посохом на гексагональной сетке. Оригинал: [CurseForge](https://www.curseforge.com/minecraft/mc-mods/hexcasting) ·
+[Modrinth](https://modrinth.com/mod/hex-casting) · [исходники](https://github.com/FallingColors/HexMod) ·
+[документация](https://hexcasting.hexxy.media/).
 
-On Fabric, it requires:
+---
 
-- PAUCAL
-- Patchouli
-- Fabric Language Kotlin
-- Cardinal Components
-- ClothConfig and ModMenu
+## RU
 
-[Read the documentation online here!](https://hexcasting.hexxy.media/)
+### Основа порта
 
-[Discord link](https://discord.gg/4xxHGYteWk)
+Порт основан на официальной ветке разработки [`FallingColors/HexMod@1.21`](https://github.com/FallingColors/HexMod/tree/1.21)
+(коммит `7d5c157`, версия `0.12.0-devel`), где авторы оригинала уже перенесли игровую логику на 1.21.1
+(Data Components, новый сетевой API, codec-и). Эта основа выбрана как самая надёжная: в ней сохранены все механики
+оригинала. Сторонний порт [HexCast NEOFORGED](https://github.com/a1exrom/hex_cast_NEOFORGED) (0.11.1) был изучен,
+но не использован: он основан на более старом коде и собирается только с локальными jar-файлами, которых нет в репозитории.
 
-## The Branches
+Что сделано в этом порте — см. [PORT_CHANGELOG.md](PORT_CHANGELOG.md). Известные проблемы — [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
 
-We are currently developing Hexcasting v0.11.x for 1.20.1, on the `main` branch.
+### Требования (установка)
 
-The 0.10.x versions, for 1.19, are in long-term support. We probably won't be adding any new features, but we will try
-to fix bugs. Those are on the `1.19` branch.
+| Мод | Версия | Обязателен | Где взять |
+|---|---|---|---|
+| Minecraft | 1.21.1 | да | |
+| NeoForge | 21.1.172 или новее | да | https://neoforged.net |
+| Kotlin for Forge | 5.8.0 или новее (5.x) | да | https://modrinth.com/mod/kotlin-for-forge |
+| PAUCAL | 0.7.0 (`paucal-0.7.0+neoforge-1.21.1.jar`) | да | https://modrinth.com/mod/paucal |
+| Architectury API | 13.0.2 или новее | да (нужен PAUCAL) | https://modrinth.com/mod/architectury-api |
+| Patchouli | 1.21.1-93 или новее | да | https://modrinth.com/mod/patchouli |
+| Caelus API | 7.0.1+1.21.1 | да | https://modrinth.com/mod/caelus |
+| Inline | 1.21.1-1.2.2 или новее | да | https://modrinth.com/mod/inline |
+| Cloth Config API | 15.0.140+neoforge | да (нужен Inline) | https://modrinth.com/mod/cloth-config |
+| Curios API | 9.5.1+1.21.1 | нет | https://modrinth.com/mod/curios |
+| JEI / EMI | 19.x / 1.1.x | нет | |
+| Pehkui | 3.8.x | нет | |
 
-The 0.9.x versions, for 1.18.2, are in long-term support. We probably won't be adding any new features, but we will try
-to fix bugs. Those are on the `1.18` branch.
+### Установка
 
-The `gh-pages` branch is for the online Hex book.
+1. Установите NeoForge 21.1.x для Minecraft 1.21.1 (клиент и/или сервер).
+2. Положите в папку `mods` файл `hexcasting-reborn-by-magetka-1.21.1.jar` и все обязательные зависимости из таблицы.
+3. Мод нужен **и на клиенте, и на сервере**.
+4. Миры с Hex Casting для 1.20.1 **не поддерживаются** (см. KNOWN_ISSUES.md) — начинайте новый мир.
 
-Other branches are old detritus from potential features.
+### Сборка
 
-## For Developers
+Нужен JDK 21 (если его нет, Gradle скачает его сам через toolchains).
 
-We publish artifacts on Maven at [https://maven.blamejared.com/at/petra-k/hexcasting/]. The modern coordinates are at:
+```bash
+./gradlew build            # Linux / macOS
+gradlew.bat build          # Windows
+```
 
-> `hexcasting-[PLATFORM]-[MC VERSION]/[MOD VERSION]`
+Готовый мод: `build/libs/hexcasting-reborn-by-magetka-1.21.1.jar`.
 
-There are some other folders in the `hexcasting` folder from old CI configurations; ignore those, they're stale.
+Полезные задачи:
 
-Please only use things in the `at.petrak.hexcasting.api` package. (We do try to keep the API fairly stable, but we don't
-do a very good job.) If you find you need something not in there yell at me on Discord.
+| Задача | Что делает |
+|---|---|
+| `./gradlew runClient` | запуск клиента в dev-окружении (с JEI, Curios) |
+| `./gradlew runServer` | запуск выделенного сервера (`run/server`, примите EULA в `run/server/eula.txt`) |
+| `./gradlew runGameTestServer` | серверные GameTest-проверки заклинаний (см. ниже) |
+| `./gradlew runData` | регенерация `src/generated/resources` (модели, рецепты, теги, лут, достижения) |
+| `./gradlew test` | юнит-тесты оригинала |
 
-## Contributing
+### Проверка
 
-Contributions are welcome via pull requests on GitHub. Please [link your PR](https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue) to any issues that it fixes. Note that if your PR makes many unrelated changes, we may ask you to split it up into several smaller PRs to make it simpler to review. Also, feel free to update the `[UNRELEASED]` section in [CHANGELOG.md](./CHANGELOG.md) to document the changes in your PR (in a human-readable and concise manner, not just copying the commit messages).
+* `./gradlew build` — сборка и 8 юнит-тестов оригинала проходят.
+* `./gradlew runGameTestServer` — 6 GameTest на выделенном сервере проходят: регистрация предметов/блоков/действий,
+  исполнение узоров (Mind's Reflection, Archer's Purification), Conjure Block с расходом заряженного аметиста,
+  обработка мишапов, сохранение хекса в фокусе (диск + сеть), сетевой codec результата каста.
+* Выделенный сервер стартует без ошибок мода; клиент проверен вручную (главное меню, список модов,
+  книга Hex Notebook, текстуры предметов, GUI посоха, рисование узоров мышью с исполнением на сервере).
 
-Translations are welcome. You can help translate Hex Casting into your language by [visiting our Weblate page](https://weblate.hexxy.media/engage/hexcasting/), or by opening a pull request to manually edit the localization files.
+---
+
+## EN
+
+This port is based on the official development branch
+[`FallingColors/HexMod@1.21`](https://github.com/FallingColors/HexMod/tree/1.21) (commit `7d5c157`, `0.12.0-devel`),
+where the upstream team already migrated the game logic to 1.21.1. It turns it into a NeoForge-only
+[ModDevGradle](https://github.com/neoforged/ModDevGradle) project, makes it run with publicly released dependencies,
+fixes port bugs found during testing and adds automated server-side GameTests.
+See [PORT_CHANGELOG.md](PORT_CHANGELOG.md) and [KNOWN_ISSUES.md](KNOWN_ISSUES.md).
+
+**Install:** NeoForge 21.1.172+ for 1.21.1, then put `hexcasting-reborn-by-magetka-1.21.1.jar` and the required
+dependencies from the table above (Kotlin for Forge, PAUCAL 0.7.0, Architectury API, Patchouli, Caelus, Inline,
+Cloth Config) into `mods` on both client and server. 1.20.1 worlds are not migrated.
+
+**Build:** JDK 21, `./gradlew build` (or `gradlew.bat build` on Windows) → `build/libs/hexcasting-reborn-by-magetka-1.21.1.jar`.
+
+## License / Лицензия
+
+MIT — see [LICENSE.txt](LICENSE.txt). Copyright © 2021 gamma-delta (petrak@). The original copyright and license
+notices are kept unchanged; see [NOTICE.md](NOTICE.md) for attribution of this port and bundled third-party code.
