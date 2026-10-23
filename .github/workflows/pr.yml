@@ -1,15 +1,12 @@
-# mirror of the Jenkins pipeline, used for requiring PRs to build successfully before merging
-# this uses Actions because it's easier to integrate with GitHub PRs, and to allow running the build on forks
+# Build, test and runtime-check Hex Casting (Reborn by Magetka) for NeoForge 1.21.1.
 
-name: Build pull request
+name: Build
 
 on:
   pull_request:
-  merge_group:
   workflow_dispatch:
-  # trigger on pushes to the default branch (main) to keep the cache up to date
   push:
-    branches: indev/1.21.1
+    branches: [main]
 
 env:
   JAVA_VERSION: '21'
@@ -19,114 +16,79 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build
+      - name: Build and unit tests
         run: |
           chmod +x gradlew
           ./gradlew build
 
-      - name: Prepare artifacts for upload
-        run: |
-          mkdir -p dist
-          cp {Common,Neoforge,Fabric}/build/libs/*.jar dist
+      - name: GameTests (dedicated server)
+        run: ./gradlew runGameTestServer
 
-      - name: Upload artifacts
+      - name: Upload jar
         uses: actions/upload-artifact@v4
         with:
-          name: mod-build
-          path: dist
+          name: hexcasting-reborn-by-magetka-1.21.1
+          path: build/libs/hexcasting-reborn-by-magetka-1.21.1.jar
           retention-days: 30
-  
-  test:
+
+  datagen:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Run datagen
+        run: |
+          chmod +x gradlew
+          ./gradlew runData
+      - name: Check generated data is up to date
+        run: |
+          git add --intent-to-add .
+          git diff --name-only --exit-code -- src/generated ":!:src/generated/resources/.cache/*"
+
+  # Launch a real client / dedicated server with the release jar and the public dependency jars.
+  runtime:
     needs: build
     strategy:
       fail-fast: false
       matrix:
-        env:
-          - server
-          - client
-        modloader:
-          - fabric
-          - neoforge
-        include:
-          - modloader: fabric
-            mc-runtime-test: fabric
-            fabric-api: 0.116.12
-            dependencies: >-
-              'https://cdn.modrinth.com/data/Ha28R6CL/versions/2i87JpYj/fabric-language-kotlin-1.13.11%2Bkotlin.2.3.21.jar'
-              'https://cdn.modrinth.com/data/9s6osm5g/versions/HpMb5wGb/cloth-config-15.0.140-fabric.jar'
-              'https://ci.blamejared.com/job/petrakat/job/PAUCAL/job/1.21/27/artifact/Fabric/build/libs/paucal-0.7.1-pre-27+1.21.1-fabric.jar'
-              'https://cdn.modrinth.com/data/fin1PX4m/versions/SBDJBD0a/inline-fabric-1.21.1-1.2.2.jar'
-              'https://cdn.modrinth.com/data/K01OU20C/versions/nLsCe2VD/cardinal-components-api-6.1.3.jar'
-              'https://cdn.modrinth.com/data/nU0bVIaL/versions/XIjNwQkI/Patchouli-1.21.1-93-FABRIC.jar'
-              'https://cdn.modrinth.com/data/mOgUt4GM/versions/v6Xx3fbU/modmenu-11.0.4.jar'
-              'https://cdn.modrinth.com/data/5aaWibi9/versions/JagCscwi/trinkets-3.10.0.jar'
-              'https://cdn.modrinth.com/data/lhGA9TYQ/versions/Pzc2FP5K/architectury-13.0.11-fabric.jar'
-          - modloader: neoforge
-            mc-runtime-test: neoforge
-            fabric-api: none
-            dependencies: >-
-              'https://cdn.modrinth.com/data/ordsPcFz/versions/NrSebcsG/kotlinforforge-5.11.0-all.jar'
-              'https://cdn.modrinth.com/data/9s6osm5g/versions/izKINKFg/cloth-config-15.0.140-neoforge.jar'
-              'https://github.com/SuperKnux/HexMod/raw/refs/heads/indev/1.21.1/libs/paucal-0.7.1-noelle+1.21.1-neoforge.jar'
-              'https://cdn.modrinth.com/data/fin1PX4m/versions/FhE1RJsR/inline-neoforge-1.21.1-1.2.2.jar'
-              'https://cdn.modrinth.com/data/nU0bVIaL/versions/BIogJv2D/Patchouli-1.21.1-93-NEOFORGE.jar'
-              'https://cdn.modrinth.com/data/lhGA9TYQ/versions/ZxYGwlk0/architectury-13.0.8-neoforge.jar'
-              'https://cdn.modrinth.com/data/40FYwb4z/versions/KsfI4QsR/caelus-neoforge-7.0.1%2B1.21.1.jar'
-              'https://cdn.modrinth.com/data/vvuO3ImH/versions/yohfFbgD/curios-neoforge-9.5.1%2B1.21.1.jar'
+        env: [server, client]
     runs-on: ubuntu-latest
+    env:
+      DEPENDENCIES: >-
+        https://cdn.modrinth.com/data/ordsPcFz/versions/NrSebcsG/kotlinforforge-5.11.0-all.jar
+        https://cdn.modrinth.com/data/9s6osm5g/versions/izKINKFg/cloth-config-15.0.140-neoforge.jar
+        https://cdn.modrinth.com/data/TZo2wHFe/versions/zgpdzVKd/paucal-0.7.0%2Bneoforge-1.21.1.jar
+        https://cdn.modrinth.com/data/fin1PX4m/versions/FhE1RJsR/inline-neoforge-1.21.1-1.2.2.jar
+        https://cdn.modrinth.com/data/nU0bVIaL/versions/BIogJv2D/Patchouli-1.21.1-93-NEOFORGE.jar
+        https://cdn.modrinth.com/data/lhGA9TYQ/versions/ZxYGwlk0/architectury-13.0.8-neoforge.jar
+        https://cdn.modrinth.com/data/40FYwb4z/versions/KsfI4QsR/caelus-neoforge-7.0.1%2B1.21.1.jar
+        https://cdn.modrinth.com/data/vvuO3ImH/versions/yohfFbgD/curios-neoforge-9.5.1%2B1.21.1.jar
     steps:
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: ${{ env.JAVA_VERSION }}
 
-      - name: Create cache key
-        id: cache-key
-        run: |
-          cat <<END_OF_FILE > dependencies.txt
-          ${{ matrix.dependencies }}
-          END_OF_FILE
-          echo "key=$(sha256sum dependencies.txt | awk '{print $1}')" >> $GITHUB_OUTPUT
-      - name: Restore cached dependencies
-        id: cache
-        uses: actions/cache/restore@v4
-        with:
-          path: run/mods
-          key: ${{ steps.cache-key.outputs.key }}
-
       - name: Download dependencies
-        if: steps.cache.outputs.cache-hit != 'true'
         run: |
-          for url in ${{ matrix.dependencies }}; do
-            wget --directory-prefix=run/mods/ "$url"
+          for url in $DEPENDENCIES; do
+            wget -q --directory-prefix=run/mods/ "$url"
           done
 
-      # Cache has to be saved here already to avoid also caching the build artifact at the end of the run
-      - name: Cache dependencies
-        uses: actions/cache/save@v4
-        if: steps.cache.outputs.cache-hit != 'true'
+      - uses: actions/download-artifact@v4
         with:
+          name: hexcasting-reborn-by-magetka-1.21.1
           path: run/mods
-          key: ${{ steps.cache-key.outputs.key }}
-
-      - name: Download build artifacts
-        uses: actions/download-artifact@v4
-        with:
-          name: mod-build
-          path: dist
-
-      - name: Prepare mod jar
-        run: |
-          rm -f dist/*-javadoc.jar dist/*-sources.jar dist/*-shadow.jar
-          cp dist/hexcasting-${{ matrix.modloader }}-*.jar run/mods
 
       - name: Run MC test client
         if: matrix.env == 'client'
@@ -135,10 +97,10 @@ jobs:
         with:
           java: ${{ env.JAVA_VERSION }}
           mc: 1.21.1
-          modloader: ${{ matrix.modloader }}
-          regex: '.*${{ matrix.modloader }}.*'
-          fabric-api: ${{ matrix.fabric-api }}
-          mc-runtime-test: ${{ matrix.mc-runtime-test }}
+          modloader: neoforge
+          regex: '.*neoforge.*'
+          fabric-api: none
+          mc-runtime-test: neoforge
 
       - name: Run MC test server
         if: matrix.env == 'server'
@@ -147,33 +109,5 @@ jobs:
         with:
           java: ${{ env.JAVA_VERSION }}
           mc: 1.21.1
-          modloader: ${{ matrix.modloader }}
-          fabric-api: ${{ matrix.fabric-api }}
-
-  datagen:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: ${{ env.JAVA_VERSION }}
-      - uses: gradle/actions/setup-gradle@v4
-
-      # ForgeGradle datagen asset download often fails (see #692)
-      # so just allow it to automatically retry a few times
-      - name: Run datagen
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          command: |
-            chmod +x gradlew
-            ./gradlew runAllDatagen
-
-      - name: Check datagen
-        run: |
-          git add --intent-to-add .
-          git diff --name-only --exit-code -- ":!:*/src/generated/resources/.cache/*"
+          modloader: neoforge
+          fabric-api: none

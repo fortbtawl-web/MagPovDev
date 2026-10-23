@@ -205,3 +205,4 @@ cython_debug/
 # dev run directories
 /run
 /repo
+/logs
