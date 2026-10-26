@@ -7,13 +7,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models import Setting
 
 DEFAULT_WELCOME = (
-    "⚡️ <b>Добро пожаловать в SpirittVPN!</b>\n\n"
-    "Твой VPN начинается здесь. 🚀\n\n"
-    "🎁 Забирай 3 дня бесплатно.\n\n"
-    "💳 Выбирай подходящий тариф.\n\n"
-    "🎟️ Активируй промокоды и получай бонусы.\n\n"
-    "Нажимай кнопку ниже и начинай!\n\n"
-    "<i>SpirittVPN — твоя свобода в сети.</i> 🔒"
+    "<b>SPIRITTVPN</b>\n\n"
+    "Твоя свобода в сети.\n\n"
+    "Управляй подпиской, устройствами и VPN-подключением в одном месте."
 )
 
 DEFAULTS: dict[str, str] = {
@@ -24,10 +20,13 @@ DEFAULTS: dict[str, str] = {
     "maintenance": "0",
     "maintenance_text": "🛠 SpirittVPN на техническом обслуживании. Скоро вернёмся — попробуй чуть позже.",
     "support_extra_url": "",
+    "referral_enabled": "1",
+    "referral_trial_days": "3",
+    "referral_payment_days": "7",
 }
 
-BOOL_KEYS = {"trial_enabled", "notifications_enabled", "maintenance"}
-INT_KEYS = {"trial_days": (1, 30)}
+BOOL_KEYS = {"trial_enabled", "notifications_enabled", "maintenance", "referral_enabled"}
+INT_KEYS = {"trial_days": (1, 30), "referral_trial_days": (0, 90), "referral_payment_days": (0, 90)}
 MAX_TEXT = {"welcome_text": 900, "maintenance_text": 900, "support_extra_url": 200}
 
 
