@@ -10,11 +10,22 @@ from aiogram.types import InlineKeyboardMarkup
 from sqlalchemy import or_, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.models import Broadcast, Subscription, SubStatus, SupportMessage, SupportTicket, User, VPNAccount
+from app.models import (
+    Broadcast,
+    Device,
+    DeviceStatus,
+    Subscription,
+    SubStatus,
+    SupportMessage,
+    SupportTicket,
+    User,
+    VPNErrorLog,
+    VPNNode,
+)
 from app.services import settings_store
+from app.services.devices import create_with_recovery, sync_user_vpn
 from app.services.users import is_active
-from app.services.vpn_sync import sync_user_vpn
-from app.vpn.base import VPNError, VPNProvider
+from app.vpn.base import VPNError, VPNNotConfiguredError, VPNProvider
 
 log = logging.getLogger("spirittvpn.jobs")
 
@@ -24,8 +35,12 @@ Notifier = Callable[[int, str, InlineKeyboardMarkup | None], Awaitable[bool]]
 
 # ---------- support ----------
 
+TICKET_CATEGORIES = {"general": "Общий вопрос", "connection": "Подключение", "payment": "Оплата",
+                     "subscription": "Подписка", "other": "Другое"}
+
+
 async def create_ticket(session: AsyncSession, user: User, topic: str, text: str) -> SupportTicket:
-    ticket = SupportTicket(user_id=user.id, topic=topic[:32])
+    ticket = SupportTicket(user_id=user.id, topic=topic if topic in TICKET_CATEGORIES else "general")
     session.add(ticket)
     await session.flush()
     session.add(SupportMessage(ticket_id=ticket.id, text=text[:2000]))
@@ -49,6 +64,24 @@ async def close_ticket(session: AsyncSession, ticket_id: int) -> bool:
     res = await session.execute(update(SupportTicket).where(SupportTicket.id == ticket_id).values(status="closed"))
     await session.commit()
     return bool(res.rowcount)
+
+
+async def user_tickets(session: AsyncSession, user_id: int) -> list[tuple[SupportTicket, list[SupportMessage]]]:
+    """Only the caller's own tickets."""
+    tickets = (await session.scalars(
+        select(SupportTicket).where(SupportTicket.user_id == user_id).order_by(SupportTicket.id.desc()).limit(20)
+    )).all()
+    out = []
+    for t in tickets:
+        msgs = (await session.scalars(
+            select(SupportMessage).where(SupportMessage.ticket_id == t.id).order_by(SupportMessage.id))).all()
+        out.append((t, list(msgs)))
+    return out
+
+
+async def ticket_messages(session: AsyncSession, ticket_id: int) -> list[SupportMessage]:
+    return list((await session.scalars(
+        select(SupportMessage).where(SupportMessage.ticket_id == ticket_id).order_by(SupportMessage.id))).all())
 
 
 async def open_tickets(session: AsyncSession) -> list[tuple[SupportTicket, User]]:
@@ -128,8 +161,8 @@ async def send_expiry_notices(session: AsyncSession, notify: Notifier, now: date
     rows = (
         await session.execute(
             select(Subscription, User).join(User, User.id == Subscription.user_id).where(
-                Subscription.status == SubStatus.ACTIVE, Subscription.expires_at > now,
-                Subscription.expires_at <= now + timedelta(hours=24),
+                Subscription.status == SubStatus.ACTIVE, Subscription.is_lifetime.is_(False),
+                Subscription.expires_at > now, Subscription.expires_at <= now + timedelta(hours=24),
             )
         )
     ).all()
@@ -144,6 +177,8 @@ async def send_expiry_notices(session: AsyncSession, notify: Notifier, now: date
             if sub.notified_24h_for == sub.expires_at:
                 continue
         if await _claim(session, sub, column):
+            if not user.notifications_enabled:
+                continue
             if not await notify(user.telegram_id, text, kb):
                 user.bot_blocked = True
                 await session.commit()
@@ -160,7 +195,8 @@ async def expire_subscriptions(
     rows = (
         await session.execute(
             select(Subscription, User).join(User, User.id == Subscription.user_id)
-            .where(Subscription.status == SubStatus.ACTIVE, Subscription.expires_at <= now)
+            .where(Subscription.status == SubStatus.ACTIVE, Subscription.is_lifetime.is_(False),
+                   Subscription.expires_at <= now)
         )
     ).all()
     count = 0
@@ -176,7 +212,7 @@ async def expire_subscriptions(
         count += 1
         await session.refresh(sub)
         await sync_user_vpn(session, provider, user, sub, now, vpn_attempts)
-        if notify_on and not await notify(user.telegram_id, texts.notice_expired(sub.is_trial), kb):
+        if notify_on and user.notifications_enabled and not await notify(user.telegram_id, texts.notice_expired(sub.is_trial), kb):
             user.bot_blocked = True
             await session.commit()
     return count
@@ -203,33 +239,76 @@ async def retry_vpn_sync(
 
 
 async def reconcile_vpn(session: AsyncSession, provider: VPNProvider, now: datetime) -> int:
-    """Flags users whose VPN-side state differs from the DB; retry_vpn_sync then fixes them."""
+    """Compares every live device with the panel. Drift is flagged for resync; clients deleted behind our back
+    are recreated (the user gets a new link)."""
     if not provider.is_configured:
         return 0
     rows = (
         await session.execute(
-            select(Subscription, User).join(User, User.id == Subscription.user_id)
-            .join(VPNAccount, VPNAccount.user_id == User.id).where(Subscription.vpn_sync_needed.is_(False))
+            select(Device, Subscription, User).join(User, User.id == Device.user_id)
+            .join(Subscription, Subscription.user_id == User.id)
+            .where(Device.status.in_(DeviceStatus.LIVE), Device.external_id.is_not(None), Subscription.vpn_sync_needed.is_(False))
         )
     ).all()
     mismatches = 0
-    for sub, user in rows:
+    for device, sub, user in rows:
         try:
-            state = await provider.get_state(user.telegram_id)
+            state = await provider.get_client(device.external_id)
+            want_active = is_active(sub, now) and device.status == DeviceStatus.ACTIVE
+            if state is None:
+                mismatches += 1
+                if want_active:
+                    client = await create_with_recovery(provider, device.external_username, user.telegram_id, sub.expires_at)
+                    device.external_id = client.external_id
+                    device.last_error = "recreated_on_panel"
+                else:
+                    device.status = DeviceStatus.REVOKED
+                    device.revoked_at = now
+                continue
         except VPNError as exc:
+            session.add(VPNErrorLog(operation="reconcile", error=type(exc).__name__))
             log.warning("reconcile aborted: %s", type(exc).__name__)
             break
-        want_active = is_active(sub, now)
-        drift = (
-            (state is None and want_active)
-            or (state is not None and state.enabled != want_active)
-            or (state is not None and want_active and state.expires_at is not None
-                and abs((state.expires_at - sub.expires_at).total_seconds()) > 120)
+        drift = state.enabled != want_active or (
+            want_active and state.expires_at is not None and abs((state.expires_at - sub.expires_at).total_seconds()) > 120
         )
         if drift:
             sub.vpn_sync_needed = True
             mismatches += 1
     await session.commit()
     if mismatches:
-        log.warning("reconcile: %d mismatches flagged for resync", mismatches)
+        log.warning("reconcile: %d mismatches", mismatches)
     return mismatches
+
+
+async def check_nodes(session: AsyncSession, provider: VPNProvider, now: datetime) -> tuple[int, int]:
+    """Refreshes node status from the panel. A failed check never leaves nodes shown as online."""
+    if not provider.is_configured:
+        return 0, 0
+    try:
+        nodes = await provider.list_nodes()
+    except (VPNError, VPNNotConfiguredError) as exc:
+        session.add(VPNErrorLog(operation="list_nodes", error=f"{type(exc).__name__}: {str(exc)[:200]}"))
+        for node in (await session.scalars(select(VPNNode))).all():
+            node.is_connected = False
+            node.status_message = "Проверка не удалась: панель недоступна"
+            node.last_checked_at = now
+        await session.commit()
+        return 0, 0
+    seen = set()
+    for info in nodes:
+        seen.add(info.external_id)
+        node = await session.scalar(select(VPNNode).where(VPNNode.external_id == info.external_id))
+        if node is None:
+            node = VPNNode(external_id=info.external_id, name=info.name)
+            session.add(node)
+        node.name, node.address, node.country = info.name, info.address, info.country
+        node.is_connected, node.is_disabled, node.users_online = info.is_connected, info.is_disabled, info.users_online
+        node.status_message, node.is_test, node.last_checked_at = info.status_message, provider.is_test, now
+        if info.is_connected and not info.is_disabled:
+            node.last_seen_ok_at = now
+    for node in (await session.scalars(select(VPNNode))).all():
+        if node.external_id not in seen:
+            await session.delete(node)
+    await session.commit()
+    return len(nodes), sum(1 for n in nodes if n.is_connected and not n.is_disabled)
