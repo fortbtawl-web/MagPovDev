@@ -20,8 +20,8 @@ from app.payments.providers import PaymentProvider
 from app.services.formatting import fmt_dt, fmt_money
 from app.services.orders import PaymentOutcome, PaymentResult
 from app.services.ops import Notifier
-from app.services.vpn_sync import sync_user_vpn
-from app.vpn.base import VPNProvider
+from app.services.devices import sync_user_vpn
+from app.vpn.base import VPNService
 
 log = logging.getLogger("spirittvpn")
 
@@ -56,20 +56,30 @@ class Logo:
         return await bot.send_message(chat_id, caption, reply_markup=reply_markup)
 
 
-async def send_welcome(bot: Bot, chat_id: int, logo: Logo, welcome_text: str, first_run: bool, trial_days: int) -> Message:
-    return await logo.send(bot, chat_id, texts.welcome_caption(welcome_text, first_run), kb.main_menu(trial_days))
+async def send_welcome(bot: Bot, chat_id: int, logo: Logo, welcome_text: str, first_run: bool,
+                       webapp_url: str | None, invited: bool = False) -> Message:
+    """Welcome screen: original logo + short caption + entry button into the Mini App."""
+    return await logo.send(bot, chat_id, texts.welcome_caption(welcome_text, first_run, invited), kb.start(webapp_url))
 
 
 @dataclass
 class Deps:
     settings: Settings
     session_factory: async_sessionmaker[AsyncSession]
-    vpn: VPNProvider
+    vpn: VPNService
     payments: PaymentProvider
     logo: Logo = field(default_factory=Logo)
+    bot_username: str | None = None
 
     def fmt_dt(self, dt: datetime) -> str:
         return fmt_dt(dt, self.settings.display_timezone)
+
+    def fmt_until(self, sub) -> str:
+        return "Бессрочная" if sub.is_lifetime else self.fmt_dt(sub.expires_at)
+
+    @property
+    def webapp_url(self) -> str | None:
+        return self.settings.resolved_webapp_url
 
 
 def make_notifier(bot: Bot) -> Notifier:
@@ -99,6 +109,13 @@ async def notify_admins(bot: Bot, settings: Settings, text: str) -> None:
             log.warning("admin notify failed: %s", type(exc).__name__)
 
 
+async def notify_referral(bot: Bot, reward) -> None:
+    try:
+        await bot.send_message(reward.referrer_telegram_id, texts.referral_reward(reward.days, reward.kind))
+    except TelegramAPIError as exc:
+        log.info("referral notify failed: %s", type(exc).__name__)
+
+
 async def deliver_payment_result(bot: Bot, session: AsyncSession, deps: Deps, result: PaymentResult) -> None:
     """User/admin notifications after a payment event has been processed and committed."""
     order, user = result.order, result.user
@@ -106,7 +123,7 @@ async def deliver_payment_result(bot: Bot, session: AsyncSession, deps: Deps, re
         sub = result.subscription
         vpn_ok = await sync_user_vpn(session, deps.vpn, user, sub, datetime.now().astimezone(), deps.settings.vpn_retry_attempts)
         text = texts.payment_success(
-            order.plan_title, deps.fmt_dt(sub.expires_at), fmt_money(order.amount, order.currency), order.id, order.is_test
+            order.plan_title, deps.fmt_until(sub), fmt_money(order.amount, order.currency), order.id, order.is_test
         )
         if not vpn_ok:
             text += texts.VPN_PENDING_NOTE
@@ -114,6 +131,8 @@ async def deliver_payment_result(bot: Bot, session: AsyncSession, deps: Deps, re
             await deps.logo.send(bot, user.telegram_id, text, kb.after_payment())
         except TelegramAPIError as exc:
             log.warning("payment success notify failed: %s", type(exc).__name__)
+        if result.referral:
+            await notify_referral(bot, result.referral)
     elif result.outcome == PaymentOutcome.FAILED and order and user:
         try:
             await bot.send_message(
