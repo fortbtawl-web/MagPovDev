@@ -1,4 +1,4 @@
-"""VPNProvider abstraction. Adapters must never log connection configs or keys."""
+"""VPNService abstraction: one panel client per user device. Adapters must never log links or keys."""
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
@@ -7,11 +7,11 @@ from datetime import datetime
 
 
 class VPNError(Exception):
-    """Non-retryable VPN error (bad request, auth failure, ...)."""
+    """Non-retryable VPN error (validation, auth failure, ...)."""
 
 
 class VPNUnavailableError(VPNError):
-    """Transient error: server down, timeout, 5xx. Safe to retry."""
+    """Transient error: network, timeout, 5xx. The operation may or may not have been applied."""
 
 
 class VPNNotConfiguredError(VPNError):
@@ -19,46 +19,65 @@ class VPNNotConfiguredError(VPNError):
 
 
 @dataclass(frozen=True)
-class VPNClientState:
+class VPNClient:
     external_id: str
+    username: str
     enabled: bool
     expires_at: datetime | None
 
 
 @dataclass(frozen=True)
 class VPNConnection:
-    """What the user gets to connect. Either a subscription/connection link or a config file."""
-
-    link: str | None = None
-    config_text: str | None = None
-    config_filename: str | None = None
+    link: str
     is_test: bool = False
 
 
-class VPNProvider(ABC):
+@dataclass(frozen=True)
+class VPNNodeInfo:
+    external_id: str
+    name: str
+    address: str
+    country: str
+    is_connected: bool
+    is_disabled: bool
+    users_online: int
+    status_message: str | None
+
+
+class VPNService(ABC):
     name: str = "abstract"
     is_test: bool = False
     is_configured: bool = True
 
     @abstractmethod
-    async def ensure_client(self, telegram_id: int, expires_at: datetime) -> VPNClientState:
-        """Create the client if missing, otherwise enable it and set the expiry. Must be idempotent."""
+    async def create_client(
+        self, username: str, telegram_id: int, expires_at: datetime, device_limit: int | None = None
+    ) -> VPNClient:
+        """Create a client. Not blindly retryable: on VPNUnavailableError call find_client() to recover."""
 
     @abstractmethod
-    async def suspend(self, telegram_id: int) -> None:
-        """Disable access without deleting the client (restorable after renewal)."""
+    async def find_client(self, username: str) -> VPNClient | None: ...
 
     @abstractmethod
-    async def revoke(self, telegram_id: int) -> None:
-        """Delete the client and invalidate its credentials."""
+    async def get_client(self, external_id: str) -> VPNClient | None: ...
 
     @abstractmethod
-    async def get_state(self, telegram_id: int) -> VPNClientState | None:
-        """Current state on the VPN side, or None if the client does not exist."""
+    async def update_client(self, external_id: str, *, expires_at: datetime, enabled: bool) -> VPNClient:
+        """Set absolute expiry and enabled state (idempotent)."""
 
     @abstractmethod
-    async def get_connection(self, telegram_id: int) -> VPNConnection:
-        """Connection data for the user."""
+    async def revoke_client(self, external_id: str) -> None:
+        """Delete the client so its credentials stop working. Missing client = success."""
+
+    @abstractmethod
+    async def get_connection(self, external_id: str) -> VPNConnection: ...
+
+    @abstractmethod
+    async def list_nodes(self) -> list[VPNNodeInfo]: ...
 
     async def close(self) -> None:  # noqa: B027 - optional hook
         pass
+
+
+# Backwards-compatible name used across the codebase.
+VPNProvider = VPNService
