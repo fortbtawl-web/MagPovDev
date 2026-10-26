@@ -50,3 +50,6 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           release: ${{ inputs.hexdoc-release || 'false' }}
+          # Without this, hexdoc looks the URL up via the Pages API, which 404s until Pages is enabled.
+          # Set the HEXDOC_SITE_URL repository variable when using a custom domain.
+          site-url: ${{ vars.HEXDOC_SITE_URL || format('https://{0}.github.io/{1}/', github.repository_owner, github.event.repository.name) }}
