@@ -173,6 +173,8 @@ celerybeat.pid
 .env
 .venv
 env/
+# Java package named `env` (Python venv rule above would otherwise hide it)
+!Common/src/main/java/at/petrak/hexcasting/api/casting/eval/env/
 venv/
 ENV/
 env.bak/
