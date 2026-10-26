@@ -12,7 +12,7 @@ from aiogram.enums import ParseMode
 from aiogram.filters import ExceptionTypeFilter
 from aiogram.fsm.storage.base import BaseStorage
 from aiogram.fsm.storage.memory import MemoryStorage
-from aiogram.types import BotCommand, ErrorEvent
+from aiogram.types import BotCommand, ErrorEvent, MenuButtonCommands, MenuButtonWebApp, WebAppInfo
 from aiohttp import web
 from sqlalchemy.exc import DBAPIError, OperationalError
 
@@ -25,7 +25,8 @@ from app.middlewares import DbSessionMiddleware, ThrottlingMiddleware, UserConte
 from app.payments.providers import build_payment_provider
 from app.runtime import Deps, Logo
 from app.services.orders import seed_plans
-from app.vpn.factory import build_vpn_provider
+from app.services.roles import AdminPermissionError
+from app.vpn.factory import build_vpn_service
 from app.web import build_web_app
 
 log = logging.getLogger("spirittvpn")
@@ -82,6 +83,10 @@ def build_dispatcher(deps: Deps) -> Dispatcher:
         log.error("database unavailable: %s", type(event.exception).__name__)
         await _notify_error(event, texts.DB_UNAVAILABLE)
 
+    @dp.errors(ExceptionTypeFilter(AdminPermissionError))
+    async def denied(event: ErrorEvent) -> None:
+        await _notify_error(event, texts.ADMIN_DENIED)
+
     @dp.errors()
     async def any_error(event: ErrorEvent) -> None:
         log.exception("unhandled error", exc_info=event.exception)
@@ -106,26 +111,32 @@ async def main() -> None:
     setup_logging(settings.log_level)
     engine = create_engine(settings.database_url)
     session_factory = create_session_factory(engine)
-    deps = Deps(settings, session_factory, build_vpn_provider(settings), build_payment_provider(settings), Logo())
+    deps = Deps(settings, session_factory, build_vpn_service(settings), build_payment_provider(settings), Logo())
     if not deps.logo.available():
         log.error("logo file missing or too large: %s — text fallback will be used", deps.logo.path)
 
     async with session_factory() as session:
-        await seed_plans(session, settings.plan_prices, settings.payment_currency)
+        await seed_plans(session, settings.default_catalog(), settings.payment_currency)
 
     bot = Bot(settings.bot_token.get_secret_value(),
               default=DefaultBotProperties(parse_mode=ParseMode.HTML, link_preview_is_disabled=True))
     dp = build_dispatcher(deps)
     me = await bot.get_me()
+    deps.bot_username = me.username
     webhook = await bot.get_webhook_info()
     if webhook.url:
         # Polling and a webhook can't coexist; the URL itself isn't logged (it may embed a secret path).
         log.warning("removing previously configured webhook to switch to polling")
         await bot.delete_webhook(drop_pending_updates=False)
     log.info("bot @%s started (env=%s, vpn=%s, payments=%s)", me.username, settings.app_env, deps.vpn.name, deps.payments.name)
+    if deps.webapp_url:
+        await bot.set_chat_menu_button(menu_button=MenuButtonWebApp(text="SpirittVPN", web_app=WebAppInfo(url=deps.webapp_url)))
+    else:
+        await bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+        log.warning("Mini App disabled: set PUBLIC_BASE_URL or WEBAPP_URL to an https:// address")
     await bot.set_my_commands([
         BotCommand(command="start", description="Запуск и главное меню"),
-        BotCommand(command="menu", description="Главное меню"),
+        BotCommand(command="menu", description="Меню без приложения"),
         BotCommand(command="support", description="Поддержка"),
         BotCommand(command="docs", description="Документы"),
         BotCommand(command="about", description="О проекте"),
