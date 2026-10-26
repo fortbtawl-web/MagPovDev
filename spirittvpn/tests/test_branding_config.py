@@ -23,20 +23,42 @@ def test_document_urls_exact_and_not_swapped():
     assert branding.USER_AGREEMENT_URL == AGREEMENT
     docs = by_text(keyboards.docs())
     assert docs["🔒 Политика конфиденциальности"].url == PRIVACY
-    assert docs["📜 Пользовательское соглашение"].url == AGREEMENT
+    assert docs["📜 Публичная оферта"].url == AGREEMENT
 
 
-def test_main_menu_has_all_required_buttons():
-    labels = set(by_text(keyboards.main_menu(3)))
-    assert labels == {"🚀 Получить 3 дня бесплатно", "💳 Купить VPN", "🎟️ Ввести промокод", "👤 Мой аккаунт",
-                      "🆘 Поддержка", "📄 Документы", "ℹ️ О проекте"}
+def test_new_start_screen_replaces_old_interface():
+    from app.services.settings_store import DEFAULT_WELCOME
+
+    with_app = keyboards.start("https://vpn.example/app/")
+    labels = [b.text for row in with_app.inline_keyboard for b in row]
+    assert labels == ["🚀 Открыть SpirittVPN", "👤 Мой аккаунт", "🛟 Поддержка", "📄 Документы"]
+    assert with_app.inline_keyboard[0][0].web_app.url == "https://vpn.example/app/"
+    fallback = keyboards.start(None)
+    assert fallback.inline_keyboard[0][0].callback_data == "home" and fallback.inline_keyboard[0][0].web_app is None
+    assert DEFAULT_WELCOME.startswith("<b>SPIRITTVPN</b>") and "Твоя свобода в сети." in DEFAULT_WELCOME
+    old = ["Добро пожаловать", "Твой VPN начинается здесь", "Забирай 3 дня бесплатно", "Выбирай подходящий тариф",
+           "Нажимай кнопку ниже", "Получить 3 дня бесплатно", "Купить VPN", "Ввести промокод"]
+    import pathlib
+
+    sources = "".join(p.read_text() for p in pathlib.Path("app").rglob("*.py"))
+    for phrase in old:
+        assert phrase not in sources, phrase
+
+
+def test_webapp_url_requires_https():
+    from app.config import Settings
+
+    base = dict(_env_file=None, bot_token="1:x")
+    assert Settings(**base, public_base_url="https://vpn.example").resolved_webapp_url == "https://vpn.example/app/"
+    assert Settings(**base, public_base_url="http://vpn.example").resolved_webapp_url is None
+    assert Settings(**base).resolved_webapp_url is None
 
 
 def test_support_menu_contacts():
     sup = by_text(keyboards.support())
     assert sup["💬 Поддержка — @cupsov"].url == "https://t.me/cupsov"
     assert sup["💬 Поддержка — @TTwer4"].url == "https://t.me/TTwer4"
-    assert {"❓ Частые вопросы", "🔌 Проблемы с подключением", "💳 Вопрос по оплате", "📄 Документы"} <= set(sup)
+    assert {"❓ Частые вопросы", "🔌 Подключение", "💳 Оплата", "📄 Документы", "✍️ Создать обращение"} <= set(sup)
     assert "Напиши нашей команде поддержки — мы поможем разобраться" in texts.SUPPORT
 
 
@@ -51,7 +73,7 @@ def test_about_roles_are_correct():
 
 
 def test_documents_available_in_all_required_places():
-    for markup in (keyboards.account(), keyboards.support(), keyboards.about()):
+    for markup in (keyboards.account(True), keyboards.support(), keyboards.about(), keyboards.start(None)):
         assert any(b.callback_data == "docs" for b in buttons(markup))
     for markup in (keyboards.plans([("m1", "x")]), keyboards.plan_checkout("m1", "pay"), keyboards.terms_gate("plan:m1", "buy")):
         urls = {b.url for b in buttons(markup)}
@@ -92,7 +114,11 @@ def test_production_forbids_test_providers():
     with pytest.raises(ValidationError):
         Settings(**base, payment_provider="test", payment_test_secret="x")
     with pytest.raises(ValidationError):
+        Settings(**base, vpn_provider="mock")
+    with pytest.raises(ValidationError):
         Settings(**base, vpn_provider="test")
-    s = Settings(**base, admin_ids="1, 2;3")
-    assert s.admin_ids == frozenset({1, 2, 3})
+    with pytest.raises(ValidationError):
+        Settings(**base, vpn_provider="remnawave")  # explicit URL + token required
+    s = Settings(**base, admin_ids="1, 2;3", owner_ids="9")
+    assert s.admin_ids == frozenset({1, 2, 3}) and s.env_role(9) == "owner" and s.env_role(1) == "admin"
     assert "1:x" not in repr(s)

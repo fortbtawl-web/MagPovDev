@@ -4,6 +4,7 @@ from __future__ import annotations
 import logging
 from datetime import UTC, datetime
 from html import escape
+from pathlib import Path
 
 from aiogram import Bot
 from aiohttp import web
@@ -31,7 +32,10 @@ async def _handle_event(request: web.Request, body: bytes, headers) -> web.Respo
     try:
         async with deps.session_factory() as session:
             result = await process_payment_event(session, event, datetime.now(UTC))
-            await deliver_payment_result(bot, session, deps, result)
+            try:
+                await deliver_payment_result(bot, session, deps, result)
+            except Exception:  # noqa: BLE001 - payment is committed; notification failures must not trigger provider retries
+                log.exception("payment notification failed")
     except (OperationalError, DBAPIError):
         log.exception("db unavailable while processing webhook")
         return web.json_response({"ok": False}, status=503)  # provider will retry
@@ -103,10 +107,53 @@ async def test_checkout_submit(request: web.Request) -> web.Response:
                         content_type="text/html")
 
 
+def _webapp_routes(app: web.Application, dist: Path) -> None:
+    """Serves the built Mini App (Vite output) under /app/ with SPA fallback."""
+    index = dist / "index.html"
+
+    async def serve(request: web.Request) -> web.StreamResponse:
+        rel = request.match_info.get("path", "")
+        target = (dist / rel).resolve()
+        if rel and target.is_file() and dist.resolve() in target.parents:
+            resp = web.FileResponse(target)
+            if "/assets/" in f"/{rel}":
+                resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+            return resp
+        if not index.is_file():
+            return web.Response(status=503, text="Mini App is not built. Run: cd webapp && npm ci && npm run build")
+        resp = web.FileResponse(index)
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+
+    async def to_app(request: web.Request) -> web.StreamResponse:
+        raise web.HTTPFound("/app/")
+
+    app.router.add_get("/app", to_app)
+    app.router.add_get("/app/", serve)
+    app.router.add_get("/app/{path:.*}", serve)
+
+
+@web.middleware
+async def security_headers(request: web.Request, handler) -> web.StreamResponse:
+    resp = await handler(request)
+    resp.headers.setdefault("X-Content-Type-Options", "nosniff")
+    resp.headers.setdefault("Referrer-Policy", "no-referrer")
+    if request.path.startswith("/api/"):
+        resp.headers.setdefault("Cache-Control", "no-store")
+    return resp
+
+
 def build_web_app(deps: Deps, bot: Bot) -> web.Application:
-    app = web.Application(client_max_size=MAX_BODY)
-    app["deps"], app["bot"] = deps, bot
+    from app.api import admin as admin_api
+    from app.api import user as user_api
+    from app.api.common import RateLimiter, api_middleware
+
+    app = web.Application(client_max_size=MAX_BODY, middlewares=[security_headers, api_middleware])
+    app["deps"], app["bot"], app["rate_limiter"] = deps, bot, RateLimiter()
     app.router.add_get("/health", health)
+    app.router.add_routes(user_api.routes)
+    app.router.add_routes(admin_api.routes)
+    _webapp_routes(app, Path(deps.settings.webapp_dist))
     app.router.add_post("/payments/{provider}/webhook", payment_webhook)
     if isinstance(deps.payments, TestPaymentProvider) and deps.settings.app_env != "production":
         app.router.add_get("/payments/test/checkout/{order_id}", test_checkout_page)

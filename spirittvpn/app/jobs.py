@@ -12,13 +12,20 @@ from sqlalchemy import func, select
 from app import keyboards as kb
 from app.models import Subscription
 from app.runtime import Deps, make_notifier, notify_admins
-from app.services.ops import Notifier, expire_subscriptions, reconcile_vpn, retry_vpn_sync, send_expiry_notices
+from app.services.ops import (
+    Notifier,
+    check_nodes,
+    expire_subscriptions,
+    reconcile_vpn,
+    retry_vpn_sync,
+    send_expiry_notices,
+)
 from app.services.orders import cancel_stale_orders
 
 log = logging.getLogger("spirittvpn.jobs")
 
 
-async def run_jobs_once(deps: Deps, notify: Notifier, now: datetime, *, reconcile: bool) -> dict[str, int]:
+async def run_jobs_once(deps: Deps, notify: Notifier, now: datetime, *, reconcile: bool, nodes: bool = True) -> dict[str, int]:
     s = deps.settings
     stats: dict[str, int] = {}
     async with deps.session_factory() as session:
@@ -30,6 +37,9 @@ async def run_jobs_once(deps: Deps, notify: Notifier, now: datetime, *, reconcil
     if reconcile:
         async with deps.session_factory() as session:
             stats["reconcile_mismatches"] = await reconcile_vpn(session, deps.vpn, now)
+    if nodes:
+        async with deps.session_factory() as session:
+            stats["nodes"], stats["nodes_online"] = await check_nodes(session, deps.vpn, now)
     async with deps.session_factory() as session:
         stats["vpn_synced"], stats["vpn_failed"] = await retry_vpn_sync(
             session, deps.vpn, now, s.vpn_max_sync_attempts, s.vpn_retry_attempts
@@ -40,14 +50,18 @@ async def run_jobs_once(deps: Deps, notify: Notifier, now: datetime, *, reconcil
 async def scheduler(deps: Deps, bot: Bot) -> None:
     notify = make_notifier(bot)
     last_reconcile = 0.0
+    last_nodes = 0.0
     last_stuck_alert = 0.0
     while True:
         try:
             reconcile = time.monotonic() - last_reconcile >= deps.settings.reconcile_interval_seconds
-            stats = await run_jobs_once(deps, notify, datetime.now(UTC), reconcile=reconcile)
+            nodes = time.monotonic() - last_nodes >= deps.settings.node_check_interval_seconds
+            stats = await run_jobs_once(deps, notify, datetime.now(UTC), reconcile=reconcile, nodes=nodes)
             if reconcile:
                 last_reconcile = time.monotonic()
-            if any(stats.values()):
+            if nodes:
+                last_nodes = time.monotonic()
+            if any(v for k, v in stats.items() if not k.startswith("nodes")):
                 log.info("jobs: %s", stats)
             async with deps.session_factory() as session:
                 stuck = await session.scalar(

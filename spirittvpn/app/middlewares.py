@@ -13,6 +13,8 @@ from aiogram.types import User as TgUser
 from app import texts
 from app.runtime import Deps
 from app.services import settings_store
+from app.services.roles import get_role
+from app.services.referrals import parse_ref_payload
 from app.services.users import get_user, register_user
 
 Handler = Callable[[TelegramObject, dict[str, Any]], Awaitable[Any]]
@@ -57,15 +59,18 @@ class UserContextMiddleware(BaseMiddleware):
         user = await get_user(session, tg.id)
         created = False
         if user is None:
-            user, created = await register_user(session, tg.id, tg.username, tg.first_name, now)
+            ref = None
+            if isinstance(event, Message) and event.text and event.text.startswith("/start "):
+                ref = parse_ref_payload(event.text.split(maxsplit=1)[1].strip())
+            user, created = await register_user(session, tg.id, tg.username, tg.first_name, now, ref)
         elif user.username != tg.username or user.first_name != tg.first_name or user.bot_blocked or (
             now - user.last_seen_at > timedelta(minutes=10)
         ):
             user, _ = await register_user(session, tg.id, tg.username, tg.first_name, now)
-        is_admin = self.deps.settings.is_admin(tg.id)
-        data.update(user=user, user_created=created, is_admin=is_admin)
+        role = await get_role(session, self.deps.settings, tg.id)
+        data.update(user=user, user_created=created, role=role)
 
-        if not is_admin and not _is_payment_event(event):
+        if role is None and not _is_payment_event(event):
             if user.is_blocked:
                 await _reply(event, texts.BLOCKED)
                 return None
