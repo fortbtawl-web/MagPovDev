@@ -124,7 +124,7 @@ def plan_json(p: Plan, q) -> dict:
     return {"code": p.code, "title": p.title, "description": p.description, "days": p.duration_days,
             "lifetime": p.is_lifetime, "devices": p.device_limit, "price": q.original, "discount": q.discount,
             "total": q.total, "currency": p.currency, "price_text": fmt_money(q.original, p.currency),
-            "total_text": fmt_money(q.total, p.currency), "promo": q.promo_code if q.discount else None}
+            "total_text": fmt_money(q.total, p.currency), "discount_text": fmt_money(q.discount, p.currency), "promo": q.promo_code if q.discount else None}
 
 
 @routes.get(f"{P}/plans")
