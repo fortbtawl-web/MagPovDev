@@ -143,3 +143,65 @@ def test_webhook_signature_verification():
         provider.parse_webhook(headers, json.dumps(tampered).encode())
     with pytest.raises(InvalidWebhookError):
         provider.parse_webhook({}, body)
+
+
+async def test_lifetime_purchase_has_no_expiry_and_ignores_renewals(session):
+    from app.models import LIFETIME_UNTIL
+    from app.services.users import account_view
+
+    user = await make_user(session)
+    await make_plan(session, code="life", price=500000, days=0, devices=3, lifetime=True)
+    order = await create_order(session, user, "life", "test", True, NOW)
+    assert order.is_lifetime and order.device_limit == 3
+    res = await process_payment_event(session, ev(order), NOW)
+    sub = res.subscription
+    assert sub.is_lifetime and sub.expires_at == LIFETIME_UNTIL and sub.device_limit == 3
+    view = await account_view(session, user, NOW + timedelta(days=4000))
+    assert view.status == "active" and view.remaining is None and view.is_lifetime
+
+
+async def test_paid_order_keeps_snapshot_when_plan_changes(session):
+    user = await make_user(session)
+    plan = await make_plan(session, price=10000, days=30, devices=2)
+    order = await create_order(session, user, "m1", "test", True, NOW)
+    plan.price, plan.duration_days, plan.device_limit = 99999, 1, 1
+    await session.commit()
+    res = await process_payment_event(session, ev(order), NOW)
+    assert res.subscription.expires_at == NOW + timedelta(days=30) and res.subscription.device_limit == 2
+
+
+async def test_device_limit_never_shrinks_on_active_renewal(session):
+    user = await make_user(session)
+    await make_plan(session, code="duo", devices=2)
+    await make_plan(session, code="solo", devices=1)
+    o1 = await create_order(session, user, "duo", "test", True, NOW)
+    await process_payment_event(session, ev(o1, event_id="1"), NOW)
+    o2 = await create_order(session, user, "solo", "test", True, NOW)
+    res = await process_payment_event(session, ev(o2, event_id="2"), NOW)
+    assert res.subscription.device_limit == 2
+
+
+async def test_refund_takes_back_period(session):
+    from app.services.orders import refund_order
+
+    user = await make_user(session)
+    await make_plan(session)
+    order = await create_order(session, user, "m1", "test", True, NOW)
+    await process_payment_event(session, ev(order), NOW)
+    refunded = await refund_order(session, order.id, NOW + timedelta(days=1))
+    await session.commit()
+    assert refunded.status == OrderStatus.REFUNDED
+    sub = await session.scalar(select(Subscription))
+    assert sub.expires_at == NOW + timedelta(days=1) and sub.vpn_sync_needed
+    assert await refund_order(session, order.id, NOW) is None  # not twice
+
+
+async def test_promo_restricted_to_plans(session):
+    user = await make_user(session)
+    await make_plan(session, code="m1", price=10000)
+    await make_plan(session, code="y1", price=20000)
+    session.add(PromoCode(code="YEAR10", kind=PromoKind.PERCENT, value=10, allowed_plans="y1"))
+    await session.commit()
+    assert (await activate_promo(session, user, "YEAR10", NOW, vpn_ready=True)).ok
+    assert (await create_order(session, user, "m1", "test", True, NOW)).discount == 0
+    assert (await create_order(session, user, "y1", "test", True, NOW)).discount == 2000
