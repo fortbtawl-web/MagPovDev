@@ -190,14 +190,16 @@ class AccountView:
 async def account_view(session: AsyncSession, user: User, now: datetime) -> AccountView:
     sub = await get_subscription(session, user.id)
     used = await trial_used(session, user.id)
-    devices = await count_live_devices(session, user.id)
+    live = await live_devices(session, user.id)
+    devices = len(live)
     if sub is None:
         return AccountView("none", None, used, None, devices, 0)
     if sub.status == SubStatus.SUSPENDED:
         return AccountView("suspended", sub, used, None, devices, sub.device_limit)
     if is_active(sub, now):
         remaining = None if sub.is_lifetime else sub.expires_at - now
-        if sub.vpn_sync_needed and devices:
+        # "pending" only when the user has devices but none is enabled on the panel yet
+        if sub.vpn_sync_needed and live and not any(d.status == DeviceStatus.ACTIVE for d in live):
             status = "pending"
         elif remaining is not None and remaining <= timedelta(days=SOON_DAYS):
             status = "soon"
