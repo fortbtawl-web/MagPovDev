@@ -1,4 +1,4 @@
-"""Admin panel. Router-level filter + per-service require_admin() — two independent server-side checks."""
+"""Admin commands in the bot. Router-level staff filter + per-action permission check in services — two server-side checks."""
 from __future__ import annotations
 
 import asyncio
@@ -7,10 +7,10 @@ from datetime import UTC, datetime
 from html import escape
 
 from aiogram import Bot, F, Router
-from aiogram.filters import Command, CommandObject, StateFilter
+from aiogram.filters import Command, CommandObject, Filter, StateFilter
 from aiogram.fsm.context import FSMContext
 from aiogram.fsm.state import State, StatesGroup
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, TelegramObject
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import keyboards as kb
@@ -24,6 +24,7 @@ from app.services.formatting import fmt_money
 from app.services.ops import add_admin_reply, close_ticket, open_tickets, run_broadcast
 from app.services.orders import process_payment_event
 from app.services.settings_store import all_settings
+from app.services.roles import require
 from app.services.users import get_user
 
 log = logging.getLogger("spirittvpn.admin")
@@ -39,11 +40,21 @@ class BroadcastInput(StatesGroup):
     text = State()
 
 
+class StaffFilter(Filter):
+    """`role` is resolved from the DB/env by UserContextMiddleware for every update."""
+
+    async def __call__(self, event: TelegramObject, role: str | None = None) -> bool:
+        return role is not None
+
+
+async def need(session: AsyncSession, deps: Deps, tg_id: int, perm: str) -> None:
+    await require(session, deps.settings, tg_id, perm)
+
+
 def build_admin_router(deps: Deps) -> Router:
     router = Router(name="admin")
-    is_admin = F.from_user.id.in_(deps.settings.admin_ids)
-    router.message.filter(is_admin)
-    router.callback_query.filter(is_admin)
+    router.message.filter(StaffFilter())
+    router.callback_query.filter(StaffFilter())
     _register(router)
     return router
 
@@ -94,7 +105,7 @@ HELP = {
     "plans": (
         "💳 <b>Тарифы</b>\n\n<code>/plans</code> — список\n"
         "<code>/plan_add код дни цена Название</code> (цена в минимальных единицах; создаётся выключенным)\n"
-        "<code>/plan_set код price=29900 days=30 title=1_месяц desc=Текст active=on sort=1</code>"
+        "<code>/plan_set код price=29900 days=30 devices=2 title=1_месяц desc=Текст active=on sort=1</code>"
     ),
     "promos": (
         "🎟️ <b>Промокоды</b>\n\n<code>/promos</code> — список · <code>/promo КОД</code> — статистика\n"
@@ -109,12 +120,12 @@ HELP = {
 
 def _register(router: Router) -> None:
     @router.message(Command("admin"))
-    async def admin_menu(message: Message):
-        await message.answer("🛡 <b>Панель администратора SpirittVPN</b>", reply_markup=kb.admin_menu())
+    async def admin_menu(message: Message, deps: Deps):
+        await message.answer("🛡 <b>Панель администратора SpirittVPN</b>", reply_markup=kb.admin_menu(deps.webapp_url))
 
     @router.callback_query(F.data == "adm:menu")
-    async def admin_menu_cb(cb: CallbackQuery):
-        await render(cb, "🛡 <b>Панель администратора SpirittVPN</b>", kb.admin_menu())
+    async def admin_menu_cb(cb: CallbackQuery, deps: Deps):
+        await render(cb, "🛡 <b>Панель администратора SpirittVPN</b>", kb.admin_menu(deps.webapp_url))
         await cb.answer()
 
     async def stats_text(session: AsyncSession, deps: Deps, admin_id: int) -> str:
@@ -140,6 +151,7 @@ def _register(router: Router) -> None:
     @router.callback_query(F.data.in_({"adm:users", "adm:plans", "adm:promos"}))
     async def section_cb(cb: CallbackQuery, session: AsyncSession, deps: Deps):
         key = cb.data.split(":")[1]
+        await need(session, deps, cb.from_user.id, {"users": "users.view", "plans": "plans.manage", "promos": "promos.manage"}[key])
         text = HELP[key]
         if key == "plans":
             text += "\n\n" + await plans_text(session, deps, cb.from_user.id)
@@ -159,7 +171,7 @@ def _register(router: Router) -> None:
                  f"Блокировка: {'⛔️ да' if u.is_blocked else 'нет'} · Бот заблокирован юзером: {'да' if u.bot_blocked else 'нет'}",
                  f"Пробный: {'использован' if card.trial_used else 'нет'}"]
         if sub:
-            lines.append(f"Подписка: {sub.status} · {escape(sub.plan_title or '—')} · до {deps.fmt_dt(sub.expires_at)}"
+            lines.append(f"Подписка: {sub.status} · {escape(sub.plan_title or '—')} · {deps.fmt_until(sub)} · 📱{len(card.devices)}/{sub.device_limit}"
                          f"{' · ⚙️ VPN sync pending' if sub.vpn_sync_needed else ''}")
         else:
             lines.append("Подписка: нет")
@@ -243,7 +255,8 @@ def _register(router: Router) -> None:
     # ----- plans -----
     async def plans_text(session: AsyncSession, deps: Deps, admin_id: int) -> str:
         plans = await svc.list_plans(session, deps.settings, admin_id)
-        rows = [f"{'🟢' if p.is_active else '⚪️'} <code>{p.code}</code> · {escape(p.title)} · {p.duration_days} дн. · "
+        rows = [f"{'🟢' if p.is_active else '⚪️'} <code>{p.code}</code> · {escape(p.title)} · "
+                f"{'Lifetime' if p.is_lifetime else str(p.duration_days) + ' дн.'} · 📱{p.device_limit} · "
                 f"{fmt_money(p.price, p.currency) if p.price else 'цена не задана'}" for p in plans]
         return "\n".join(rows) or "Тарифов нет."
 
@@ -338,11 +351,13 @@ def _register(router: Router) -> None:
                 "Контакты поддержки и ссылки на документы задаются в <code>app/branding.py</code>.")
 
     @router.message(Command("settings"))
-    async def settings_cmd(message: Message, session: AsyncSession):
+    async def settings_cmd(message: Message, session: AsyncSession, deps: Deps):
+        await need(session, deps, message.from_user.id, "settings.manage")
         await message.answer(await settings_text(session))
 
     @router.callback_query(F.data == "adm:settings")
-    async def settings_cb(cb: CallbackQuery, session: AsyncSession):
+    async def settings_cb(cb: CallbackQuery, session: AsyncSession, deps: Deps):
+        await need(session, deps, cb.from_user.id, "settings.manage")
         await render(cb, await settings_text(session), kb.admin_back())
         await cb.answer()
 
@@ -361,18 +376,21 @@ def _register(router: Router) -> None:
 
     # ----- broadcast -----
     @router.message(Command("broadcast"))
-    async def broadcast_start(message: Message, state: FSMContext):
+    async def broadcast_start(message: Message, state: FSMContext, session: AsyncSession, deps: Deps):
+        await need(session, deps, message.from_user.id, "broadcast")
         await state.set_state(BroadcastInput.text)
         await message.answer("📢 Отправь текст рассылки (HTML-разметка поддерживается). /cancel — отмена.")
 
     @router.callback_query(F.data == "adm:broadcast")
-    async def broadcast_start_cb(cb: CallbackQuery, state: FSMContext):
+    async def broadcast_start_cb(cb: CallbackQuery, state: FSMContext, session: AsyncSession, deps: Deps):
+        await need(session, deps, cb.from_user.id, "broadcast")
         await state.set_state(BroadcastInput.text)
         await render(cb, "📢 Отправь текст рассылки (HTML-разметка поддерживается). /cancel — отмена.", kb.admin_back())
         await cb.answer()
 
     @router.message(StateFilter(BroadcastInput.text), F.text, ~F.text.startswith("/"))
-    async def broadcast_preview(message: Message, session: AsyncSession, state: FSMContext):
+    async def broadcast_preview(message: Message, session: AsyncSession, state: FSMContext, deps: Deps):
+        await need(session, deps, message.from_user.id, "broadcast")
         text = message.html_text[:3500]
         bc = Broadcast(admin_telegram_id=message.from_user.id, text=text)
         session.add(bc)
@@ -389,7 +407,7 @@ def _register(router: Router) -> None:
     @router.callback_query(F.data.startswith("adm:bc:"))
     async def broadcast_confirm(cb: CallbackQuery, bot: Bot, session: AsyncSession, deps: Deps):
         _, _, action, bid = cb.data.split(":")
-        svc.require_admin(deps.settings, cb.from_user.id)
+        await need(session, deps, cb.from_user.id, "broadcast")
         bc = await session.get(Broadcast, int(bid))
         if bc is None or bc.status != "draft":
             await cb.answer("Рассылка уже обработана", show_alert=True)
@@ -422,17 +440,19 @@ def _register(router: Router) -> None:
         return f"{dt:%d.%m %H:%M} UTC"
 
     @router.message(Command("tickets"))
-    async def tickets_cmd(message: Message, session: AsyncSession):
+    async def tickets_cmd(message: Message, session: AsyncSession, deps: Deps):
+        await need(session, deps, message.from_user.id, "tickets")
         await message.answer(await tickets_text(session))
 
     @router.callback_query(F.data == "adm:tickets")
-    async def tickets_cb(cb: CallbackQuery, session: AsyncSession):
+    async def tickets_cb(cb: CallbackQuery, session: AsyncSession, deps: Deps):
+        await need(session, deps, cb.from_user.id, "tickets")
         await render(cb, await tickets_text(session), kb.admin_back())
         await cb.answer()
 
     @router.message(Command("reply"))
     async def reply_cmd(message: Message, command: CommandObject, bot: Bot, session: AsyncSession, deps: Deps):
-        svc.require_admin(deps.settings, message.from_user.id)
+        await need(session, deps, message.from_user.id, "tickets")
         raw = (command.args or "").strip()
         tid, _, text = raw.partition(" ")
         if not tid.isdigit() or not text.strip():
@@ -454,6 +474,7 @@ def _register(router: Router) -> None:
         if len(args) != 1 or not args[0].isdigit():
             await message.answer("Формат: <code>/close ID</code>")
             return
+        await need(session, deps, message.from_user.id, "tickets")
         ok = await close_ticket(session, int(args[0]))
         await svc.audit(session, message.from_user.id, "ticket_close", args[0])
         await session.commit()
@@ -476,6 +497,7 @@ def _register(router: Router) -> None:
 
     @router.message(Command("order"))
     async def order_cmd(message: Message, command: CommandObject, session: AsyncSession, deps: Deps):
+        await need(session, deps, message.from_user.id, "users.view")
         args = _args(command)
         order = await session.get(Order, args[0][:36]) if args else None
         if order is None:
@@ -490,6 +512,7 @@ def _register(router: Router) -> None:
     @router.message(Command("testpay"))
     async def testpay_cmd(message: Message, command: CommandObject, bot: Bot, session: AsyncSession, deps: Deps):
         """DEVELOPMENT ONLY: emits a signed test event through the same verification path as the webhook."""
+        await need(session, deps, message.from_user.id, "payments.manage")
         provider = deps.payments
         if not isinstance(provider, TestPaymentProvider) or deps.settings.app_env == "production":
             await message.answer("Доступно только в тестовом режиме оплаты.")
@@ -513,7 +536,7 @@ def _register(router: Router) -> None:
     @router.message(Command("confirm_payment"))
     async def confirm_payment_cmd(message: Message, command: CommandObject, bot: Bot, session: AsyncSession, deps: Deps):
         """Recovery for a Telegram payment that was charged but not recorded (e.g. DB outage)."""
-        svc.require_admin(deps.settings, message.from_user.id)
+        await need(session, deps, message.from_user.id, "payments.manage")
         args = _args(command)
         if len(args) != 2:
             await message.answer("Формат: <code>/confirm_payment ORDER_ID TELEGRAM_CHARGE_ID</code>")
