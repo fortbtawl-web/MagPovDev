@@ -44,11 +44,11 @@ def now_utc() -> datetime:
 async def cb_buy(cb: CallbackQuery, session: AsyncSession, deps: Deps, user: User):
     await cb.answer()
     if not deps.vpn.is_configured:
-        await render(cb, texts.SERVICE_NOT_READY_BUY, kb.back_to("menu"))
+        await render(cb, texts.SERVICE_NOT_READY, kb.back_to("home"))
         return
     plans = await active_plans(session)
     if not plans:
-        await render(cb, texts.NO_PLANS, kb.back_to("menu"))
+        await render(cb, texts.NO_PLANS, kb.back_to("home"))
         return
     lines = [texts.PLANS_HEADER]
     buttons = []
@@ -56,9 +56,11 @@ async def cb_buy(cb: CallbackQuery, session: AsyncSession, deps: Deps, user: Use
         q = await quote(session, user, p)
         price = fmt_money(q.total, p.currency)
         old = f" <s>{fmt_money(q.original, p.currency)}</s>" if q.discount else ""
-        lines.append(f"<b>{escape(p.title)}</b> · {days_word(p.duration_days)} · {price}{old}\n<i>{escape(p.description)}</i>")
+        term = "бессрочно" if p.is_lifetime else days_word(p.duration_days)
+        lines.append(f"<b>{escape(p.title)}</b> · {term} · 📱 {p.device_limit} · {price}{old}\n<i>{escape(p.description)}</i>")
         buttons.append((p.code, f"{p.title} — {price}"))
-    lines.append("\nПродление добавляется к текущему сроку подписки.")
+    lines.append("\nПродление добавляется к текущему сроку подписки. Lifetime — без регулярных продлений "
+                 "на всё время работы сервиса по условиям оферты.")
     if deps.payments.is_test:
         lines.append("🧪 <i>Тестовый режим оплаты: реальные деньги не списываются.</i>")
     await render(cb, "\n\n".join(lines), kb.plans(buttons), logo=deps.logo)
@@ -72,7 +74,8 @@ async def show_plan(cb: CallbackQuery, session: AsyncSession, deps: Deps, user: 
     q = await quote(session, user, plan)
     lines = [
         f"💳 <b>{escape(plan.title)}</b>\n{texts.DIV}",
-        f"⏱ Длительность: {days_word(plan.duration_days)}",
+        f"⏱ Срок: {'бессрочно (Lifetime)' if plan.is_lifetime else days_word(plan.duration_days)}",
+        f"📱 Устройств: {plan.device_limit}",
         f"💰 Стоимость: {fmt_money(q.original, plan.currency)}",
         f"📝 {escape(plan.description)}" if plan.description else "",
     ]
@@ -104,7 +107,7 @@ async def cb_pay(cb: CallbackQuery, bot: Bot, session: AsyncSession, deps: Deps,
     # Every precondition is re-checked server-side: the button itself proves nothing.
     if not deps.vpn.is_configured:
         await cb.answer()
-        await render(cb, texts.SERVICE_NOT_READY_BUY, kb.back_to("menu"))
+        await render(cb, texts.SERVICE_NOT_READY, kb.back_to("home"))
         return
     if not deps.payments.is_enabled:
         await cb.answer(texts.PAYMENTS_UNAVAILABLE, show_alert=True)
