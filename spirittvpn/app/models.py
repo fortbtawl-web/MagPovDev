@@ -1,7 +1,7 @@
 """Database schema."""
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from sqlalchemy import BigInteger, Boolean, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
@@ -12,6 +12,19 @@ from app.database import Base, UTCDateTime, utcnow
 class SubStatus:
     ACTIVE = "active"
     EXPIRED = "expired"
+    SUSPENDED = "suspended"  # temporarily disabled by staff
+
+
+LIFETIME_UNTIL = datetime(2099, 12, 31, 23, 59, 59, tzinfo=UTC)  # stored expiry for lifetime subscriptions
+
+
+class DeviceStatus:
+    PENDING = "pending"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"  # subscription inactive or over the device limit
+    REVOKED = "revoked"
+
+    LIVE = (PENDING, ACTIVE, SUSPENDED)
 
 
 class OrderStatus:
@@ -20,6 +33,7 @@ class OrderStatus:
     PAID = "paid"
     CANCELLED = "cancelled"
     FAILED = "failed"
+    REFUNDED = "refunded"
 
     PAYABLE = (CREATED, PENDING)
 
@@ -47,6 +61,9 @@ class User(Base):
     username: Mapped[str | None] = mapped_column(String(64))
     first_name: Mapped[str | None] = mapped_column(String(128))
     group: Mapped[str | None] = mapped_column(String(32))
+    referrer_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"), index=True)
+    notifications_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
+    sounds_enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="1")
     is_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     bot_blocked: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
@@ -82,6 +99,8 @@ class Subscription(Base):
     plan_code: Mapped[str | None] = mapped_column(String(32))
     plan_title: Mapped[str | None] = mapped_column(String(128))
     is_trial: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_lifetime: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
+    device_limit: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
     status: Mapped[str] = mapped_column(String(16), default=SubStatus.ACTIVE, index=True)
     starts_at: Mapped[datetime] = mapped_column(UTCDateTime)
     expires_at: Mapped[datetime] = mapped_column(UTCDateTime, index=True)
@@ -94,18 +113,87 @@ class Subscription(Base):
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
 
 
-class VPNAccount(Base):
-    """Link between a user and the client on the VPN side. Credentials are never stored here."""
+class Device(Base):
+    """One VPN client per device: each gets its own panel user and subscription link."""
 
-    __tablename__ = "vpn_accounts"
+    __tablename__ = "devices"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True)
+    public_id: Mapped[str] = mapped_column(String(36), unique=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    subscription_id: Mapped[int | None] = mapped_column(ForeignKey("subscriptions.id", ondelete="SET NULL"))
+    name: Mapped[str] = mapped_column(String(48))
+    status: Mapped[str] = mapped_column(String(16), default=DeviceStatus.PENDING, index=True)
     provider: Mapped[str] = mapped_column(String(32))
-    external_id: Mapped[str] = mapped_column(String(128))
-    status: Mapped[str] = mapped_column(String(16))
+    external_username: Mapped[str] = mapped_column(String(64), unique=True)
+    external_id: Mapped[str | None] = mapped_column(String(128))
+    sync_needed: Mapped[bool] = mapped_column(Boolean, default=False, index=True)
+    last_error: Mapped[str | None] = mapped_column(String(255))
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, onupdate=utcnow)
+    revoked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class BonusEntry(Base):
+    """Ledger of bonus days. unique_key makes each reward (e.g. referral per invitee and kind) one-shot."""
+
+    __tablename__ = "bonus_ledger"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), index=True)
+    source: Mapped[str] = mapped_column(String(32), index=True)
+    days: Mapped[int] = mapped_column(Integer)
+    description: Mapped[str] = mapped_column(String(255), default="")
+    unique_key: Mapped[str | None] = mapped_column(String(96), unique=True)
+    related_user_id: Mapped[int | None] = mapped_column(ForeignKey("users.id", ondelete="SET NULL"))
+    created_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
+
+
+class BonusSource:
+    REFERRAL_TRIAL = "referral_trial"
+    REFERRAL_PAYMENT = "referral_payment"
+    PROMO = "promo"
+    ADMIN = "admin"
+    CORRECTION = "correction"
+
+    REFERRAL = (REFERRAL_TRIAL, REFERRAL_PAYMENT)
+
+
+class Staff(Base):
+    __tablename__ = "staff"
+
+    telegram_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    role: Mapped[str] = mapped_column(String(16))
+    added_by: Mapped[int | None] = mapped_column(BigInteger)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
+
+
+class VPNNode(Base):
+    __tablename__ = "vpn_nodes"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    external_id: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(128))
+    address: Mapped[str] = mapped_column(String(255), default="")
+    country: Mapped[str] = mapped_column(String(8), default="")
+    is_connected: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_disabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    users_online: Mapped[int] = mapped_column(Integer, default=0)
+    status_message: Mapped[str | None] = mapped_column(String(255))
+    is_test: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_checked_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+    last_seen_ok_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
+
+
+class VPNError(Base):
+    __tablename__ = "vpn_errors"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    operation: Mapped[str] = mapped_column(String(48))
+    error: Mapped[str] = mapped_column(String(255))
+    device_id: Mapped[int | None] = mapped_column(Integer)
+    created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow, index=True)
 
 
 class Plan(Base):
@@ -115,7 +203,9 @@ class Plan(Base):
     code: Mapped[str] = mapped_column(String(32), unique=True)
     title: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")
-    duration_days: Mapped[int] = mapped_column(Integer)
+    duration_days: Mapped[int] = mapped_column(Integer)  # 0 for lifetime
+    device_limit: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    is_lifetime: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     price: Mapped[int] = mapped_column(Integer, default=0)  # minor units
     currency: Mapped[str] = mapped_column(String(8))
     is_active: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -131,6 +221,8 @@ class Order(Base):
     plan_code: Mapped[str] = mapped_column(String(32))
     plan_title: Mapped[str] = mapped_column(String(128))
     duration_days: Mapped[int] = mapped_column(Integer)
+    device_limit: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    is_lifetime: Mapped[bool] = mapped_column(Boolean, default=False, server_default="0")
     amount_original: Mapped[int] = mapped_column(Integer)
     discount: Mapped[int] = mapped_column(Integer, default=0)
     amount: Mapped[int] = mapped_column(Integer)
@@ -179,6 +271,7 @@ class PromoCode(Base):
     max_activations: Mapped[int | None] = mapped_column(Integer)
     activations_count: Mapped[int] = mapped_column(Integer, default=0)
     allowed_group: Mapped[str | None] = mapped_column(String(32))
+    allowed_plans: Mapped[str | None] = mapped_column(String(255))  # comma-separated plan codes; discounts only
     new_users_only: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(UTCDateTime, default=utcnow)
 
