@@ -1,5 +1,13 @@
-FROM python:3.12-slim
+# --- Mini App build ---
+FROM node:22-alpine AS webapp
+WORKDIR /webapp
+COPY webapp/package.json webapp/package-lock.json ./
+RUN npm ci --no-audit --no-fund
+COPY webapp/ ./
+RUN npm run build
 
+# --- Bot + API ---
+FROM python:3.12-slim
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 WORKDIR /app
 
@@ -10,6 +18,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY alembic.ini ./
 COPY migrations ./migrations
 COPY app ./app
+COPY --from=webapp /webapp/dist ./webapp/dist
 RUN mkdir -p /app/data && chown bot /app/data
 
 USER bot

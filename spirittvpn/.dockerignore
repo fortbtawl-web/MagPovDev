@@ -3,6 +3,8 @@
 data
 backups
 tests
+webapp/node_modules
+webapp/dist
 .pytest_cache
 .ruff_cache
 **/__pycache__
