@@ -75,10 +75,10 @@ async def test_start_sends_logo_with_welcome_docs_and_menu(bot_env):
     dp, bot, s = bot_env
     await dp.feed_update(bot, cmd(5, "/start"))
     photo = next(r for r in s.requests if isinstance(r, SendPhoto))
-    assert "Добро пожаловать в SpirittVPN" in photo.caption
+    assert photo.caption.startswith("<b>SPIRITTVPN</b>") and "Добро пожаловать" not in photo.caption
     assert "POLITIKA-KONFIDENCIALNOSTI-08-12-99" in photo.caption and "PUBLICHNAYA-OFERTA-08-12-15" in photo.caption
     labels = [b.text for row in photo.reply_markup.inline_keyboard for b in row]
-    assert "💳 Купить VPN" in labels and "ℹ️ О проекте" in labels
+    assert labels == ["🚀 Открыть SpirittVPN", "👤 Мой аккаунт", "🛟 Поддержка", "📄 Документы"]
     # second /start reuses cached file_id (no re-upload) and keeps the user
     await dp.feed_update(bot, cmd(5, "/start"))
     photos = [r for r in s.requests if isinstance(r, SendPhoto)]
@@ -124,6 +124,31 @@ async def test_trial_flow_requires_explicit_acceptance(bot_env, session_factory)
         assert sub is not None and sub.is_trial
     shown = [r for r in s.requests if isinstance(r, (EditMessageCaption, SendPhoto))]
     assert any("Пробный период активирован" in (r.caption or "") for r in shown)
+
+
+async def test_referral_start_binds_referrer(bot_env, session_factory):
+    dp, bot, s = bot_env
+    await dp.feed_update(bot, cmd(11, "/start"))
+    await dp.feed_update(bot, cmd(12, "/start ref_11"))
+    await dp.feed_update(bot, cmd(12, "/start ref_13"))
+    from app.models import User
+
+    async with session_factory() as db:
+        u11 = await db.scalar(select(User).where(User.telegram_id == 11))
+        u12 = await db.scalar(select(User).where(User.telegram_id == 12))
+        assert u12.referrer_id == u11.id
+    caption = [r for r in s.requests if isinstance(r, SendPhoto)][1].caption
+    assert "пригласил друг" in caption
+
+
+async def test_device_flow_in_fallback_menu(bot_env, session_factory):
+    dp, bot, s = bot_env
+    await dp.feed_update(bot, cmd(9, "/start"))
+    await dp.feed_update(bot, click(9, "accept:trial"))
+    s.requests.clear()
+    await dp.feed_update(bot, click(9, "devices", photo=False))
+    shown = " ".join(getattr(r, "text", "") or "" for r in s.requests)
+    assert "Использовано 1 из 1" in shown
 
 
 async def test_buy_shows_plans_only_with_prices(bot_env, session_factory):
