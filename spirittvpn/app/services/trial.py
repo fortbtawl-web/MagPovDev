@@ -1,18 +1,20 @@
-"""Free trial: once per Telegram account, enforced by UNIQUE(trial_activations.user_id)."""
+"""Free trial: once per Telegram account (UNIQUE trial_activations.user_id) with the first device created atomically."""
 from __future__ import annotations
 
 import enum
 import logging
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import Subscription, TrialActivation, User
+from app.models import BonusSource, Device, Subscription, TrialActivation, User
 from app.services import settings_store
+from app.services.devices import _compensate, log_vpn_error, provision_device
+from app.services.referrals import Reward, grant_referral_bonus
 from app.services.users import extend_subscription, get_subscription, has_accepted_terms, has_paid_orders, trial_used
-from app.services.vpn_sync import apply_vpn_state
-from app.vpn.base import VPNError, VPNProvider
+from app.vpn.base import VPNError, VPNService
 
 log = logging.getLogger("spirittvpn.trial")
 
@@ -27,19 +29,28 @@ class TrialResult(enum.Enum):
     VPN_UNAVAILABLE = "vpn_unavailable"
 
 
+@dataclass
+class TrialOutcome:
+    result: TrialResult
+    subscription: Subscription | None = None
+    device: Device | None = None
+    reward: Reward | None = None
+
+
 async def activate_trial(
-    session: AsyncSession, user: User, provider: VPNProvider, legal_version: str, now: datetime, vpn_attempts: int = 3
-) -> tuple[TrialResult, Subscription | None]:
+    session: AsyncSession, user: User, vpn: VPNService, legal_version: str, now: datetime,
+    *, device_limit: int = 1, prefix: str = "sp",
+) -> TrialOutcome:
     if not await settings_store.get_bool(session, "trial_enabled"):
-        return TrialResult.DISABLED, None
+        return TrialOutcome(TrialResult.DISABLED)
     if await trial_used(session, user.id):
-        return TrialResult.ALREADY_USED, None
+        return TrialOutcome(TrialResult.ALREADY_USED)
     if await get_subscription(session, user.id) is not None or await has_paid_orders(session, user.id):
-        return TrialResult.NOT_ELIGIBLE, None
-    if not provider.is_configured:
-        return TrialResult.SERVICE_NOT_READY, None
+        return TrialOutcome(TrialResult.NOT_ELIGIBLE)
+    if not vpn.is_configured:
+        return TrialOutcome(TrialResult.SERVICE_NOT_READY)
     if not await has_accepted_terms(session, user, legal_version):
-        return TrialResult.NEED_TERMS, None
+        return TrialOutcome(TrialResult.NEED_TERMS)
 
     days = await settings_store.get_int(session, "trial_days")
     session.add(TrialActivation(user_id=user.id, activated_at=now, expires_at=now + timedelta(days=days)))
@@ -47,19 +58,23 @@ async def activate_trial(
         await session.flush()
     except IntegrityError:
         await session.rollback()
-        return TrialResult.ALREADY_USED, None
+        return TrialOutcome(TrialResult.ALREADY_USED)
 
-    sub = await extend_subscription(session, user, days, now, is_trial=True)
+    sub = await extend_subscription(session, user, days, now, is_trial=True, device_limit=device_limit)
     try:
-        # Access is created before commit: if the VPN fails, the trial is not spent.
-        await apply_vpn_state(session, provider, user, sub, now, vpn_attempts)
+        # Access is created before commit: if the panel fails, the trial is not spent.
+        device = await provision_device(session, vpn, user, sub, "Моё устройство", prefix)
     except VPNError as exc:
         log.warning("trial rollback for user_id=%s: %s", user.id, type(exc).__name__)
         await session.rollback()
-        return TrialResult.VPN_UNAVAILABLE, None
+        await log_vpn_error(session, "create_client", exc)
+        return TrialOutcome(TrialResult.VPN_UNAVAILABLE)
+    sub.vpn_sync_needed = False
+    reward = await grant_referral_bonus(session, user, BonusSource.REFERRAL_TRIAL, now)
     try:
         await session.commit()
     except IntegrityError:
         await session.rollback()
-        return TrialResult.ALREADY_USED, None
-    return TrialResult.ACTIVATED, sub
+        await _compensate(vpn, device)
+        return TrialOutcome(TrialResult.ALREADY_USED)
+    return TrialOutcome(TrialResult.ACTIVATED, sub, device, reward)
