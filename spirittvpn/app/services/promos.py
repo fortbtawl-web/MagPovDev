@@ -10,9 +10,9 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.models import ActivationStatus, PromoActivation, PromoCode, PromoKind, Subscription, User
+from app.models import ActivationStatus, BonusEntry, BonusSource, PromoActivation, PromoCode, PromoKind, Subscription, User
 from app.services.orders import pending_discount
-from app.services.users import extend_subscription, has_paid_orders
+from app.services.users import extend_subscription, get_subscription, has_paid_orders, is_active
 
 CODE_RE = re.compile(r"^[A-Z0-9_-]{3,32}$")
 
@@ -28,6 +28,7 @@ class PromoError(enum.Enum):
     ALREADY_USED = "Ты уже активировал этот промокод."
     DISCOUNT_PENDING = "У тебя уже есть неиспользованная скидка — сначала оформи покупку."
     SERVICE_NOT_READY = "Бонусные дни станут доступны после запуска VPN-серверов. Попробуй позже."
+    LIFETIME = "У тебя бессрочная подписка — бонусные дни не нужны. Сохрани код для друга."
 
 
 @dataclass
@@ -52,6 +53,8 @@ def describe(promo: PromoCode, fmt_money) -> str:
         text = f"скидка {promo.value}% на следующую покупку"
     else:
         text = f"скидка {fmt_money(promo.value)} на следующую покупку"
+    if promo.kind != PromoKind.DAYS and promo.allowed_plans:
+        text += f" (тарифы: {promo.allowed_plans})"
     return f"{text}" + (f" — {promo.description}" if promo.description else "")
 
 
@@ -85,6 +88,10 @@ async def activate_promo(
         return PromoResult(False, PromoError.DISCOUNT_PENDING)
     if promo.kind == PromoKind.DAYS and not vpn_ready:
         return PromoResult(False, PromoError.SERVICE_NOT_READY)
+    if promo.kind == PromoKind.DAYS:
+        current = await get_subscription(session, user.id)
+        if current and current.is_lifetime and is_active(current, now):
+            return PromoResult(False, PromoError.LIFETIME)
 
     # Atomic counter: the WHERE clause guards against exceeding the limit under concurrency.
     res = await session.execute(
@@ -111,6 +118,8 @@ async def activate_promo(
     sub = None
     if promo.kind == PromoKind.DAYS:
         sub = await extend_subscription(session, user, promo.value, now)
+        session.add(BonusEntry(user_id=user.id, source=BonusSource.PROMO, days=promo.value,
+                               description=f"Промокод {promo.code}", created_at=now))
     await session.commit()
     await session.refresh(promo)
     return PromoResult(True, promo=promo, subscription=sub)
