@@ -1,0 +1,41 @@
+# Local or single-server deployment. Secrets live in .env (not in this file).
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: spiritt
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD}
+      POSTGRES_DB: spiritt
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U spiritt"]
+      interval: 5s
+      retries: 10
+    restart: unless-stopped
+
+  api:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://spiritt:${POSTGRES_PASSWORD}@db:5432/spiritt
+    command: sh -c "alembic upgrade head && python -m backend"
+    ports:
+      - "127.0.0.1:8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  bot:
+    build: .
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://spiritt:${POSTGRES_PASSWORD}@db:5432/spiritt
+    command: python -m bot
+    depends_on:
+      - api
+    restart: unless-stopped
+
+volumes:
+  pgdata:

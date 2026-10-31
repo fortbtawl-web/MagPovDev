@@ -1,0 +1,18 @@
+[Unit]
+Description=SpirittVPN API + worker
+After=network-online.target postgresql.service
+Wants=network-online.target
+
+[Service]
+User=spiritt
+WorkingDirectory=/opt/spirittvpn/SpirittVPN
+ExecStart=/opt/spirittvpn/SpirittVPN/.venv/bin/python -m backend
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
