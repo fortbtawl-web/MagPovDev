@@ -1,0 +1,17 @@
+.venv/
+__pycache__/
+*.pyc
+.env
+.env.*
+!.env.example
+frontend/node_modules/
+frontend/dist/
+backups/
+*.sql.gz
+*.dump
+.pytest_cache/
+dist/
+
+run.lock
+logs/
+*.log
